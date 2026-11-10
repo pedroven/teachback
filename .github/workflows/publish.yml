@@ -12,8 +12,8 @@ jobs:
       id-token: write  # lets PyPI verify this workflow, so no token is needed
       contents: read
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.3.3
       - name: Check tag matches pyproject version
         run: test "${GITHUB_REF_NAME#v}" = "$(uv version --short)"
       - run: uv build
