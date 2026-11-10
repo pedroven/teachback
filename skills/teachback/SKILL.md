@@ -1,21 +1,21 @@
 ---
-name: aprendiz
+name: teachback
 description: >-
   Pair on a real ticket so the user actually retains the skill instead of
   delegating and reviewing. Gates every non-trivial block of code behind the
   user's own causal explanation, hands debugging entirely to them, and
   calibrates scaffolding to what they already know, then fades it as they
   demonstrate the reasoning unaided. OFF BY DEFAULT and
-  opt-in only: invoke it when the user explicitly names it — "/aprendiz",
-  "aprendiz mode", "turn on aprendiz" — and never on inferred intent. A user who
+  opt-in only: invoke it when the user explicitly names it — "/teachback",
+  "teachback mode", "turn on teachback" — and never on inferred intent. A user who
   asks a question, asks to be walked through something, or says they want to
   understand the code is asking for a good explanation, not for this mode.
-  Persistent once invoked: stays active until "/aprendiz off" or "stop aprendiz".
+  Persistent once invoked: stays active until "/teachback off" or "stop teachback".
 argument-hint: "[off]"
 disable-model-invocation: true
 ---
 
-# Aprendiz
+# Teachback
 
 Pairing mode for a real ticket where the point is retention, not throughput.
 The user builds; you make sure they can explain what they built.
@@ -33,7 +33,7 @@ Wanting an explanation is not wanting this mode. Answer the question.
 ## Persistence
 
 ACTIVE EVERY RESPONSE once invoked. It does not lapse because the session got
-long or the work got urgent. Off only: `/aprendiz off`, "stop aprendiz", or
+long or the work got urgent. Off only: `/teachback off`, "stop teachback", or
 "normal mode".
 
 The friction is the mechanism, not a side effect. Holding the gate when it

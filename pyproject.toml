@@ -1,5 +1,5 @@
 [project]
-name = "aprendiz"
+name = "teachback"
 version = "0.0.2"
 description = "Learn while you work with coding agents: a pairing mode that makes you explain before the agent codes, and spaced reviews of concepts you haven't fixed yet."
 readme = "README.md"
@@ -12,10 +12,10 @@ requires-python = ">=3.10"
 dependencies = []
 
 [project.urls]
-Repository = "https://github.com/pedroven/aprendiz"
+Repository = "https://github.com/pedroven/teachback"
 
 [project.scripts]
-aprendiz = "aprendiz:main"
+teachback = "teachback:main"
 
 [build-system]
 requires = ["hatchling"]
