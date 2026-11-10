@@ -1,0 +1,22 @@
+[project]
+name = "aprendiz"
+version = "0.0.1"
+description = "Learn while you work with coding agents: a pairing mode that makes you explain before the agent codes, and spaced reviews of concepts you haven't fixed yet."
+readme = "README.md"
+authors = [
+    { name = "Pedro" }
+]
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.10"
+dependencies = []
+
+[project.urls]
+Repository = "https://github.com/pedroven/aprendiz"
+
+[project.scripts]
+aprendiz = "aprendiz:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
