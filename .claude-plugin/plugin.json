@@ -1,0 +1,11 @@
+{
+  "name": "teachback",
+  "version": "0.0.3",
+  "description": "Learn while you work: a pairing mode that makes you explain before the agent codes, and spaced reviews of concepts you haven't fixed yet. Runs the teachback CLI, which must be on PATH.",
+  "author": {
+    "name": "Pedro Costa",
+    "url": "https://github.com/pedroven"
+  },
+  "repository": "https://github.com/pedroven/teachback",
+  "license": "MIT"
+}

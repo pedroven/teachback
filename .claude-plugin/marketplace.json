@@ -1,0 +1,17 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "teachback",
+  "description": "teachback, the plugin for learning while you work with coding agents.",
+  "owner": {
+    "name": "Pedro Costa",
+    "url": "https://github.com/pedroven"
+  },
+  "plugins": [
+    {
+      "name": "teachback",
+      "description": "Pairing mode and spaced reviews of concepts you haven't fixed yet.",
+      "source": "./",
+      "category": "learning"
+    }
+  ]
+}

@@ -74,7 +74,7 @@ def mcp() -> None:
 @click.option("--agent", type=click.Choice(list(agents.AGENTS)), help="Only this agent.")
 @click.option("--yes", "-y", is_flag=True, help="Don't ask before applying.")
 def setup(agent: str | None, yes: bool) -> None:
-    """Install the pairing mode skill into every agent on PATH."""
+    """Install teachback into every agent on PATH: the plugin in Claude Code and Codex, the skill in OpenCode."""
     sys.exit(agents.run(remove=False, only=agent, yes=yes))
 
 
@@ -82,5 +82,5 @@ def setup(agent: str | None, yes: bool) -> None:
 @click.option("--agent", type=click.Choice(list(agents.AGENTS)), help="Only this agent.")
 @click.option("--yes", "-y", is_flag=True, help="Don't ask before applying.")
 def uninstall(agent: str | None, yes: bool) -> None:
-    """Remove what setup installed. This covers agents no longer on PATH too."""
+    """Remove what setup installed. OpenCode's skill is removed even after OpenCode is gone."""
     sys.exit(agents.run(remove=True, only=agent, yes=yes))

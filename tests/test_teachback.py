@@ -2,8 +2,10 @@
 
 import json
 import shutil
+import sys
 import threading
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import pytest
 from click.testing import CliRunner
@@ -211,53 +213,145 @@ def home(tmp_path, monkeypatch):
         (bin / name).chmod(0o755)
     monkeypatch.setenv("PATH", str(bin))
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
-    monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)  # the agents' folders follow HOME only
+    # The agents' folders follow HOME only, whatever this machine sets.
+    monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)
     monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
     return tmp_path / "home"
 
 
+@pytest.fixture
+def calls(home, monkeypatch):
+    """Fakes the claude and codex plugin CLIs, which remember what they added. Returns every command run."""
+    calls, added = [], set()  # added: {(agent, "marketplace" or "plugin")}
+
+    def cli(command):
+        calls.append(command)
+        agent, args = command.split(" ", 1)
+        if args == "plugin marketplace list --json":
+            names = [{"name": "teachback"}] if (agent, "marketplace") in added else []
+            return json.dumps(names if agent == "claude" else {"marketplaces": names})
+        if args == "plugin list --json":
+            return json.dumps([{"id": agents.PLUGIN, "scope": "user"}] if (agent, "plugin") in added else [])
+        if args == "plugin list -m teachback --json":
+            return json.dumps({"installed": [{"pluginId": agents.PLUGIN}] if (agent, "plugin") in added else []})
+        thing = "marketplace" if "marketplace" in args else "plugin"
+        if args.split()[-2] in ("add", "install"):
+            added.add((agent, thing))
+        else:
+            added.discard((agent, thing))
+        return ""
+
+    monkeypatch.setattr(agents, "cli", cli)
+    return calls
+
+
 tree = agents.files_in
+CHANGES = ("add", "install", "remove", "uninstall")  # the words in a command that changes something
 
 
-def test_setup_skill(home):
-    assert teachback_cli("setup", "--yes")[0] == 0
+def changes(calls):
+    return [c for c in calls if c.split()[-2] in CHANGES]
+
+
+def test_setup(calls, home):
+    code, out = teachback_cli("setup", "--yes")
+    assert code == 0 and "trust teachback's SessionStart hook" in out
+    assert changes(calls) == [
+        "claude plugin marketplace add pedroven/teachback",
+        "claude plugin install teachback@teachback",
+        "codex plugin marketplace add pedroven/teachback",
+        "codex plugin add teachback@teachback",
+    ]
     installed = tree(home)
-    for d in (".claude/skills", ".agents/skills", ".config/opencode/skills"):
-        assert f"{d}/teachback/SKILL.md" in installed
+    assert list(installed) == [f".config/opencode/skills/teachback/{name}" for name in tree(agents.SKILL)]
+
+    calls.clear()
     assert teachback_cli("setup", "--yes") == (0, "Already set up.\n")
-    assert tree(home) == installed
+    assert changes(calls) == [] and tree(home) == installed
+
     assert teachback_cli("uninstall", "--yes")[0] == 0
+    assert changes(calls) == [
+        "claude plugin uninstall teachback@teachback",
+        "claude plugin marketplace remove teachback",
+        "codex plugin remove teachback@teachback",
+        "codex plugin marketplace remove teachback",
+    ]
     assert tree(home) == {}
 
 
-def test_uninstall_after_the_agent(home):
+def test_uninstall_after_the_agent(calls, home):
     teachback_cli("setup", "--yes")
     (home.parent / "bin/claude").unlink()  # the user removed Claude Code before teachback
-    assert teachback_cli("uninstall", "--yes")[0] == 0
+    calls.clear()
+    code, out = teachback_cli("uninstall", "--yes")
+    assert code == 0 and "claude" not in out  # skipped quietly: most people never had every agent
+    assert not [c for c in calls if c.startswith("claude")]
     assert tree(home) == {}
 
+    _, out = teachback_cli("uninstall", "--yes", "--agent", "claude-code")
+    # Named: not a bare "Nothing to remove."
+    assert "can't check for the teachback plugin: `claude` is not on PATH" in out
 
-def test_config_dir_from_env(home, tmp_path, monkeypatch):
-    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "claude-work"))
+
+def test_agent_cli_fails(home):
+    """The real subprocess path: a failing list stops setup, and a failing marketplace add is reported."""
+    claude = home.parent / "bin/claude"
+    claude.write_text("#!/bin/sh\necho 'not logged in' >&2\nexit 1\n")
+    code, out = teachback_cli("setup", "--yes", "--agent", "claude-code")
+    assert code == 1 and "`claude plugin marketplace list --json` failed: not logged in" in out
+
+    claude.write_text('#!/bin/sh\ncase "$*" in *list*) echo "[]" ;; *) echo "no network" >&2; exit 1 ;; esac\n')
+    code, out = teachback_cli("setup", "--yes", "--agent", "claude-code")
+    assert code == 1
+    assert "failed  claude-code: claude plugin marketplace add pedroven/teachback: no network" in out
+
+
+def test_agent_cli_times_out(home, monkeypatch):
+    monkeypatch.setattr(agents, "TIMEOUT", 0.2)
+    (home.parent / "bin/claude").write_text(f"#!{sys.executable}\nimport time\ntime.sleep(5)\n")  # PATH has no sleep
+    code, out = teachback_cli("setup", "--yes", "--agent", "claude-code")
+    assert code == 1 and "timed out after 0.2 seconds" in out
+
+
+def test_project_scope_install_is_not_enough(home, monkeypatch):
+    """Installed for another repo only: setup still installs it for the user."""
+    lists = {
+        "claude plugin marketplace list --json": [{"name": "teachback"}],
+        "claude plugin list --json": [{"id": agents.PLUGIN, "scope": "project"}],
+    }
+    monkeypatch.setattr(agents, "cli", lambda command: json.dumps(lists.get(command)))
     _, out = teachback_cli("setup", "--yes", "--agent", "claude-code")
-    assert f"copy the skill to {tmp_path}/claude-work/skills/teachback" in out
-    assert (tmp_path / "claude-work/skills/teachback/SKILL.md").is_file()
+    assert "done    claude-code: claude plugin install teachback@teachback" in out
+
+
+def test_older_skill_copy_noted(calls, home):
+    (home / ".claude/skills/teachback").mkdir(parents=True)  # what 0.0.3's README had you copy
+    _, out = teachback_cli("setup", "--yes", "--agent", "claude-code")
+    assert "note: ~/.claude/skills/teachback also holds the skill" in out
+    assert (home / ".claude/skills/teachback").is_dir()  # reported, never deleted
+
+
+def test_plugin_versions():
+    """Claude Code and Codex use the plugin's version to tell when it has changed."""
+    root = Path(__file__).parents[1]
+    for manifest in (".claude-plugin/plugin.json", ".codex-plugin/plugin.json"):
+        assert json.loads((root / manifest).read_text())["version"] == teachback.__version__, manifest
 
 
 def test_symlink_left_alone(home, tmp_path):
-    link = home / ".claude/skills/teachback"
+    link = home / ".config/opencode/skills/teachback"
     link.parent.mkdir(parents=True)
     link.symlink_to(tmp_path)
     for command in ("setup", "uninstall"):
-        _, out = teachback_cli(command, "--yes", "--agent", "claude-code")
+        _, out = teachback_cli(command, "--yes", "--agent", "opencode")
         assert "symlink" in out
         assert link.readlink() == tmp_path
 
 
 @pytest.fixture
 def older_copy(home):
-    """What an older teachback installed for Codex: the same files, but SKILL.md has changed since."""
-    folder = home / ".agents/skills/teachback"
+    """What an older teachback installed for OpenCode: the same files, but SKILL.md has changed since."""
+    folder = home / ".config/opencode/skills/teachback"
     shutil.copytree(agents.SKILL, folder)
     with open(folder / "SKILL.md", "a", encoding="utf-8") as f:
         f.write("A line this version dropped.\n")
@@ -265,28 +359,28 @@ def older_copy(home):
 
 
 def test_older_copy_replaced(older_copy):
-    code, out = teachback_cli("setup", "--yes", "--agent", "codex")
-    assert code == 0 and "replace ~/.agents/skills/teachback" in out
+    code, out = teachback_cli("setup", "--yes", "--agent", "opencode")
+    assert code == 0 and "replace ~/.config/opencode/skills/teachback" in out
     assert tree(older_copy) == tree(agents.SKILL)
 
 
 def test_replace_drops_old_files(older_copy):
     (older_copy / "OLD.md").write_text("a file this version no longer ships")
-    teachback_cli("setup", "--yes", "--agent", "codex")
+    teachback_cli("setup", "--yes", "--agent", "opencode")
     assert not (older_copy / "OLD.md").exists()
 
 
 def test_missing_skill_keeps_the_old_copy(older_copy, tmp_path, monkeypatch):
     monkeypatch.setattr(agents, "SKILL", tmp_path / "nowhere")  # a broken install
     before = tree(older_copy)
-    code, out = teachback_cli("setup", "--yes", "--agent", "codex")
+    code, out = teachback_cli("setup", "--yes", "--agent", "opencode")
     assert code == 1 and "Reinstall teachback" in out
     assert tree(older_copy) == before
 
 
-def test_setup_asks(home):
+def test_setup_asks(calls, home):
     assert teachback_cli("setup", input="n\n")[0] == 1
-    assert tree(home) == {}
+    assert changes(calls) == [] and tree(home) == {}
 
 
 def test_agent_not_on_path(home):
