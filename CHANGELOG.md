@@ -6,7 +6,8 @@ Notable changes to teachback. The format follows [Keep a Changelog](https://keep
 
 ### Added
 
-- Storage for reviews: concepts you haven't fixed yet live in `~/.teachback/concepts.json` (`TEACHBACK_HOME` overrides the folder) and are scheduled with FSRS. Nothing in the CLI uses it yet.
+- Storage for reviews: concepts you haven't fixed yet live in `~/.teachback/concepts.json` (`TEACHBACK_HOME` overrides the folder) and are scheduled with FSRS.
+- `teachback hook`: the session-start text an agent injects, with the one concept due for review, if any. Setup doesn't install it yet.
 
 ## [0.0.3] - 2026-11-10
 
