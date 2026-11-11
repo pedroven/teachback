@@ -1,18 +1,21 @@
 """The agents teachback installs into, and `teachback setup` / `teachback uninstall`.
 
 Each agent installs teachback its own official way, so a change in one agent only touches its class:
-- Claude Code and Codex get the teachback plugin (skill and SessionStart hook) through their own plugin CLIs.
-  This repo is the marketplace: see .claude-plugin/ and .agents/plugins/.
+- Claude Code and Codex get the teachback plugin (skill, SessionStart hook and MCP server) through their own plugin
+  CLIs. This repo is the marketplace: see .claude-plugin/ and .agents/plugins/.
 - OpenCode installs JS plugin packages (`opencode plugin add`), and teachback has none yet, so the pairing mode skill
-  is copied into OpenCode's skills folder.
+  is copied into OpenCode's skills folder, and `opencode mcp add` registers the MCP server.
 """
 
 import json
 import os
 import shutil
+import stat
 import subprocess
+import tempfile
 from abc import ABC, abstractmethod
 from collections.abc import Callable
+from functools import partial
 from pathlib import Path
 from typing import NamedTuple
 
@@ -148,13 +151,41 @@ class OpenCode(Agent):
     name = "opencode"
     command = "opencode"
 
+    add_mcp = "opencode mcp add --global teachback -- teachback mcp"  # bare teachback: on PATH, as for the plugin
+
+    @property
+    def config_dir(self) -> Path:
+        return Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config") / "opencode"
+
     @property
     def skills_dir(self) -> Path:
-        return Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config") / "opencode" / "skills"
+        return self.config_dir / "skills"
 
     def plan(self, remove: bool) -> list[Step]:
-        step = self.skill_step(remove)
-        return [step] if step else []
+        skill = self.skill_step(remove)
+        return ([skill] if skill else []) + self.mcp_steps(remove)
+
+    def mcp_steps(self, remove: bool) -> list[Step]:
+        """Register the MCP server with OpenCode's CLI, or remove it from each config file that has it.
+
+        `opencode mcp add` writes to opencode.json or opencode.jsonc, so both are checked. OpenCode has no
+        `mcp remove`, so uninstall edits the file itself.
+        """
+        steps, registered = [], False
+        for file in (self.config_dir / "opencode.json", self.config_dir / "opencode.jsonc"):
+            if not file.exists():
+                continue
+            try:
+                found = "teachback" in read_config(file)[1]
+            except (OSError, ValueError) as e:  # comments, say: never rewrite a file we can't read
+                steps.append(Step(f"can't read {tilde(file)}, so the MCP server is left as it is: {e}"))
+                continue
+            registered = registered or found
+            if remove and found:
+                steps.append(Step(f"remove the teachback MCP server from {tilde(file)}", partial(remove_mcp, file)))
+        if not remove and not registered and not steps:  # with a file it can't read, uninstall couldn't undo an add
+            steps.append(cli_step(self.add_mcp))
+        return steps
 
     def skill_step(self, remove: bool) -> Step | None:
         """Copy the skill into the skills folder, or remove it. None when there's nothing to do."""
@@ -236,6 +267,42 @@ def replace_skill(folder: Path) -> None:
     shutil.copytree(SKILL, folder)
 
 
+def read_config(file: Path) -> tuple[dict, dict]:
+    """An OpenCode config and its MCP servers. Raises ValueError when the file isn't a config teachback can edit."""
+    config = json.loads(file.read_text(encoding="utf-8"))
+    mcp = config.get("mcp", {}) if isinstance(config, dict) else None
+    servers = mcp.get("servers", {}) if isinstance(mcp, dict) else None
+    if not isinstance(servers, dict):
+        raise ValueError("not the config layout teachback knows")
+    return config, servers
+
+
+def remove_mcp(file: Path) -> None:
+    """Delete teachback from an OpenCode config's MCP servers, and the keys left empty.
+
+    Edits the file a symlink points to, and keeps its permissions: it may hold API keys.
+    """
+    target = file.resolve()
+    config, servers = read_config(target)  # again: the user may have edited it while Apply? was open
+    if "teachback" not in servers:
+        return
+    del servers["teachback"]
+    if not servers:
+        mcp = config["mcp"]
+        del mcp["servers"]
+        if not mcp:
+            del config["mcp"]
+    fd, temp = tempfile.mkstemp(dir=target.parent)  # 0600 until the chmod: never readable by others meanwhile
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(json.dumps(config, indent=2, ensure_ascii=False) + "\n")
+        os.chmod(temp, stat.S_IMODE(target.stat().st_mode))
+        os.replace(temp, target)  # OpenCode never sees a half-written file
+    except BaseException:
+        os.unlink(temp)
+        raise
+
+
 def detect(only: str | None, remove: bool) -> list[Agent]:
     """The agents to work on: every supported agent on PATH, or just `only`.
 
@@ -281,7 +348,7 @@ def run(*, remove: bool, only: str | None, yes: bool) -> int:
     for agent, step in todo:
         try:
             step.apply()
-        except (OSError, subprocess.SubprocessError) as e:  # SubprocessError: a failed or timed-out CLI
+        except (OSError, subprocess.SubprocessError, ValueError) as e:  # a failed CLI, a config gone unreadable
             print(f"failed  {agent.name}: {step.text}: {failure(e)}")
             failed = True
         else:

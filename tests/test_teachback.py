@@ -2,6 +2,7 @@
 
 import json
 import shutil
+import stat
 import sys
 import threading
 from datetime import datetime, timedelta, timezone
@@ -221,12 +222,21 @@ def home(tmp_path, monkeypatch):
 
 @pytest.fixture
 def calls(home, monkeypatch):
-    """Fakes the claude and codex plugin CLIs, which remember what they added. Returns every command run."""
+    """Fakes the claude and codex plugin CLIs, which remember what they added, and `opencode mcp add`, which writes
+    opencode.json as OpenCode does. Returns every command run."""
     calls, added = [], set()  # added: {(agent, "marketplace" or "plugin")}
 
     def cli(command):
         calls.append(command)
         agent, args = command.split(" ", 1)
+        if agent == "opencode":
+            file = home / ".config/opencode/opencode.json"
+            config = json.loads(file.read_text()) if file.exists() else {}
+            server = {"type": "local", "command": ["teachback", "mcp"]}
+            config.setdefault("mcp", {}).setdefault("servers", {})["teachback"] = server
+            file.parent.mkdir(parents=True, exist_ok=True)
+            file.write_text(json.dumps(config, indent=2))
+            return ""
         if args == "plugin marketplace list --json":
             names = [{"name": "teachback"}] if (agent, "marketplace") in added else []
             return json.dumps(names if agent == "claude" else {"marketplaces": names})
@@ -246,11 +256,11 @@ def calls(home, monkeypatch):
 
 
 tree = agents.files_in
-CHANGES = ("add", "install", "remove", "uninstall")  # the words in a command that changes something
+OPENCODE_CONFIG = ".config/opencode/opencode.json"
 
 
 def changes(calls):
-    return [c for c in calls if c.split()[-2] in CHANGES]
+    return [c for c in calls if not c.endswith("--json")]  # every command but the lists
 
 
 def test_setup(calls, home):
@@ -261,9 +271,12 @@ def test_setup(calls, home):
         "claude plugin install teachback@teachback",
         "codex plugin marketplace add pedroven/teachback",
         "codex plugin add teachback@teachback",
+        "opencode mcp add --global teachback -- teachback mcp",
     ]
     installed = tree(home)
-    assert list(installed) == [f".config/opencode/skills/teachback/{name}" for name in tree(agents.SKILL)]
+    assert set(installed) == {OPENCODE_CONFIG} | {
+        f".config/opencode/skills/teachback/{name}" for name in tree(agents.SKILL)
+    }
 
     calls.clear()
     assert teachback_cli("setup", "--yes") == (0, "Already set up.\n")
@@ -276,7 +289,7 @@ def test_setup(calls, home):
         "codex plugin remove teachback@teachback",
         "codex plugin marketplace remove teachback",
     ]
-    assert tree(home) == {}
+    assert tree(home) == {OPENCODE_CONFIG: b"{}\n"}
 
 
 def test_uninstall_after_the_agent(calls, home):
@@ -286,7 +299,7 @@ def test_uninstall_after_the_agent(calls, home):
     code, out = teachback_cli("uninstall", "--yes")
     assert code == 0 and "claude" not in out  # skipped quietly: most people never had every agent
     assert not [c for c in calls if c.startswith("claude")]
-    assert tree(home) == {}
+    assert tree(home) == {OPENCODE_CONFIG: b"{}\n"}
 
     _, out = teachback_cli("uninstall", "--yes", "--agent", "claude-code")
     # Named: not a bare "Nothing to remove."
@@ -336,6 +349,74 @@ def test_plugin_versions():
     root = Path(__file__).parents[1]
     for manifest in (".claude-plugin/plugin.json", ".codex-plugin/plugin.json"):
         assert json.loads((root / manifest).read_text())["version"] == teachback.__version__, manifest
+
+
+def test_opencode_mcp_round_trip(calls, home, tmp_path):
+    """The user's other keys and servers stay as they were, and uninstall gives back the same JSON.
+
+    The config is a symlink to a private file, as in a dotfiles repo: both survive.
+    """
+    real = tmp_path / "dotfiles/opencode.json"
+    real.parent.mkdir()
+    original = {"model": "m", "mcp": {"servers": {"ai-memory": {"type": "remote", "url": "http://127.0.0.1:1/mcp"}}}}
+    real.write_text(json.dumps(original))
+    real.chmod(0o640)
+    file = home / OPENCODE_CONFIG
+    file.parent.mkdir(parents=True)
+    file.symlink_to(real)
+    teachback_cli("setup", "--yes", "--agent", "opencode")
+    teachback_cli("setup", "--yes", "--agent", "opencode")
+    assert changes(calls) == ["opencode mcp add --global teachback -- teachback mcp"]  # once: then it's registered
+
+    _, out = teachback_cli("uninstall", "--yes", "--agent", "opencode")
+    assert "done    opencode: remove the teachback MCP server from ~/.config/opencode/opencode.json" in out
+    assert file.is_symlink() and json.loads(real.read_text()) == original
+    assert stat.S_IMODE(real.stat().st_mode) == 0o640
+
+
+def test_opencode_jsonc(calls, home):
+    """`opencode mcp add` writes to opencode.jsonc when that's the only config: setup sees it, uninstall removes it."""
+    file = home / ".config/opencode/opencode.jsonc"
+    file.parent.mkdir(parents=True)
+    file.write_text(json.dumps({"mcp": {"servers": {"teachback": {"type": "local"}}}}))
+    assert teachback_cli("setup", "--yes", "--agent", "opencode")[0] == 0
+    assert changes(calls) == []
+    _, out = teachback_cli("uninstall", "--yes", "--agent", "opencode")
+    assert "done    opencode: remove the teachback MCP server from ~/.config/opencode/opencode.jsonc" in out
+    assert json.loads(file.read_text()) == {}
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        '{"mcp": {"servers": {"teachback": {}}}, // a comment\n}',
+        "null",
+        "[]",
+        '{"mcp": null}',
+        '{"mcp": {"servers": []}}',
+    ],
+)
+def test_opencode_config_unreadable(calls, home, text):
+    """Reported and never rewritten, and it doesn't stop the other agents."""
+    file = home / OPENCODE_CONFIG
+    file.parent.mkdir(parents=True)
+    file.write_text(text)
+    for command in ("setup", "uninstall"):
+        code, out = teachback_cli(command, "--yes")
+        assert code == 0 and "can't read ~/.config/opencode/opencode.json, so the MCP server is left as it is" in out
+    assert file.read_text() == text
+    assert not [c for c in changes(calls) if c.startswith("opencode")]
+
+
+def test_config_changed_while_asking(calls, home, monkeypatch):
+    """The user broke opencode.json while Apply? was open: reported, not a traceback, and left alone."""
+    file = home / OPENCODE_CONFIG
+    file.parent.mkdir(parents=True)
+    file.write_text(json.dumps({"mcp": {"servers": {"teachback": {}}}}))
+    monkeypatch.setattr(agents.click, "confirm", lambda _: file.write_text('{"mcp": null}') or True)
+    code, out = teachback_cli("uninstall", "--agent", "opencode")
+    assert code == 1 and "failed  opencode: remove the teachback MCP server" in out
+    assert file.read_text() == '{"mcp": null}'
 
 
 def test_symlink_left_alone(home, tmp_path):

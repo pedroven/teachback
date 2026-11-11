@@ -7,5 +7,13 @@
     "url": "https://github.com/pedroven"
   },
   "repository": "https://github.com/pedroven/teachback",
-  "license": "MIT"
+  "license": "MIT",
+  "mcpServers": {
+    "teachback": {
+      "command": "teachback",
+      "args": [
+        "mcp"
+      ]
+    }
+  }
 }
