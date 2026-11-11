@@ -11,6 +11,7 @@ license-files = ["LICENSE"]
 requires-python = ">=3.10"
 dependencies = [
     "fsrs>=6,<7",
+    "mcp>=2,<3",
 ]
 
 [project.urls]

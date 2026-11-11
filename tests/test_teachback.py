@@ -89,6 +89,13 @@ def raises(fn, *args):
     raise AssertionError(f"{fn.__name__}{args} did not raise")
 
 
+def test_bad_file_named():
+    file = fresh()
+    for bad in (b"{not json", b"\xff{}"):  # broken JSON, then bytes that aren't UTF-8
+        file.write_bytes(bad)
+        assert f"{file} is not valid JSON" in raises(ledger.load)
+
+
 def test_slug():
     assert ledger.slug("HTTP 401 vs 403") == "http-401-vs-403"
     assert ledger.slug("  http 401 vs. 403!") == "http-401-vs-403"
@@ -192,6 +199,72 @@ def test_hook_nothing_due():
 def test_hook_corrupt_file():
     fresh().write_text("{not json", encoding="utf-8")
     assert run_hook() == ""
+
+
+def test_mcp_tools():
+    """What the model sees, through the SDK's in-memory client."""
+    import asyncio
+
+    from mcp import Client
+
+    from teachback.server import app
+
+    file = fresh()
+
+    async def check():
+        async with Client(app) as c:
+
+            async def call(tool, **args):
+                r = await c.call_tool(tool, args)
+                return r.is_error, r.content[0].text
+
+            assert await call("teachback_due") == (False, "Nothing due.")
+            error, text = await call("teachback_add", title="HTTP 401 vs 403", note="401: who are you?")
+            assert not error and text.startswith("Added http-401-vs-403. First review on 20"), text
+            error, text = await call("teachback_add", title="http 401 vs. 403", note="n")
+            assert error and "already exists" in text  # the reason reaches the model, not just "failed"
+
+            ledger.add("Old", "n", now=datetime.now(timezone.utc) - DAY)
+            error, text = await call("teachback_due")
+            assert not error and "id: old" in text and "teachback_rate" in text
+            assert "one question about it now." in text and "first task" not in text  # called mid-session
+            error, text = await call("teachback_rate", id="old", rating="meh")
+            assert error and "Again, Hard, Good, Easy" in text
+            error, text = await call("teachback_rate", id="old", rating="Good")
+            assert not error and text.startswith("Next review in "), text
+
+            prompt = await c.get_prompt("review")
+            assert prompt.messages[0].content.text == "Nothing due."
+            tools = (await c.list_tools()).tools
+            assert all(t.output_schema is None for t in tools)  # plain text only
+            words = [app.instructions] + [t.description for t in tools]
+            assert "pairing" not in " ".join(words).lower()
+
+            file.write_text("{not json", encoding="utf-8")
+            error, text = await call("teachback_due")
+            assert error and f"{file} is not valid JSON" in text, text
+            prompt = await c.get_prompt("review")
+            assert f"{file} is not valid JSON" in prompt.messages[0].content.text
+
+    asyncio.run(check())
+
+
+def test_mcp_stdio():
+    """`teachback mcp` as an agent starts it: a subprocess speaking MCP over stdin and stdout."""
+    import asyncio
+    from pathlib import Path
+
+    from mcp import Client, StdioServerParameters
+
+    exe = Path(sys.executable).with_name("teachback")  # the installed script, next to the venv's python
+    server = StdioServerParameters(command=str(exe), args=["mcp"], env={"TEACHBACK_HOME": tempfile.mkdtemp()})
+
+    async def check():
+        async with Client(server) as c:  # connecting runs initialize
+            return sorted(t.name for t in (await c.list_tools()).tools)
+
+    names = asyncio.run(asyncio.wait_for(check(), 30))  # a hung server fails the test instead of stalling CI
+    assert names == ["teachback_add", "teachback_due", "teachback_rate"]
 
 
 if __name__ == "__main__":

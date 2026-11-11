@@ -20,10 +20,13 @@ def home() -> Path:
 
 def load() -> dict:
     """Read without the lock: os.replace means a reader sees the old file or the new one."""
+    file = home() / "concepts.json"
     try:
-        return json.loads((home() / "concepts.json").read_text(encoding="utf-8"))
+        return json.loads(file.read_text(encoding="utf-8"))
     except FileNotFoundError:
         return {"concepts": {}, "archive": {}}
+    except (json.JSONDecodeError, UnicodeDecodeError) as e:  # a hand edit gone wrong: name the file
+        raise ValueError(f"{file} is not valid JSON: {e}") from None
 
 
 @contextmanager
