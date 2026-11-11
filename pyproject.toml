@@ -23,11 +23,15 @@ teachback = "teachback:main"
 [tool.ruff]
 line-length = 120
 
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [dependency-groups]
 dev = [
+    "pytest==9.2.0",
     "ruff==0.15.20",
 ]

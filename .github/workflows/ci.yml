@@ -8,10 +8,12 @@ on:
 
 env:
   PIP_AUDIT_VERSION: "2.10.1"
+  UV_LOCKED: "1"  # a stale uv.lock fails the run instead of being re-resolved
 
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 10  # a hung test fails fast instead of holding CI for 6 hours
     strategy:
       matrix:
         python: ["3.10", "3.13"]  # oldest supported and newest
@@ -23,7 +25,7 @@ jobs:
           enable-cache: true
       - run: uv run ruff format --check  # version pinned in pyproject.toml's dev group
       - run: uv run ruff check
-      - run: uv run python tests/test_teachback.py
+      - run: uv run pytest
       - name: Audit dependencies
         if: matrix.python == '3.13'  # same lock file on both, so once is enough
         run: |

@@ -5,12 +5,12 @@
 You need [uv](https://docs.astral.sh/uv/).
 
 ```
-uv run python tests/test_teachback.py   # every check, plain asserts; prints "ok"
+uv run pytest      # tests/test_teachback.py: ledger and hook; tests/test_server.py: MCP server
 uv run ruff format
 uv run ruff check
 ```
 
-ruff's version is pinned in the `dev` group of `pyproject.toml`, so your local ruff matches CI's. pip-audit runs only in CI, pinned in `PIP_AUDIT_VERSION` at the top of `.github/workflows/ci.yml`.
+ruff and pytest are pinned in the `dev` group of `pyproject.toml`, so your local versions match CI's. pip-audit runs only in CI, pinned in `PIP_AUDIT_VERSION` at the top of `.github/workflows/ci.yml`.
 
 The tests point `TEACHBACK_HOME` at a temporary folder, so they never touch your real `~/.teachback`.
 
