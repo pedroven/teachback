@@ -19,3 +19,5 @@ cp -r teachback/skills/teachback ~/.claude/skills/
 Run `/teachback` to turn it on and `/teachback off` to turn it off. It was first tested as `/learn`.
 
 Reviews are not built yet.
+
+[Changelog](https://github.com/pedroven/teachback/blob/main/CHANGELOG.md) · [Contributing](https://github.com/pedroven/teachback/blob/main/docs/contributing.md)

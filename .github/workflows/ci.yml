@@ -1,0 +1,31 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_call:  # publish.yml runs this before uploading
+
+env:
+  PIP_AUDIT_VERSION: "2.10.1"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: ["3.10", "3.13"]  # oldest supported and newest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.3.3
+        with:
+          python-version: ${{ matrix.python }}
+          enable-cache: true
+      - run: uv run ruff format --check  # version pinned in pyproject.toml's dev group
+      - run: uv run ruff check
+      - run: uv run python tests/test_teachback.py
+      - name: Audit dependencies
+        if: matrix.python == '3.13'  # same lock file on both, so once is enough
+        run: |
+          uv export --no-dev --no-emit-project -q -o requirements.txt  # what users install, not dev tools
+          uvx "pip-audit@$PIP_AUDIT_VERSION" -r requirements.txt --disable-pip

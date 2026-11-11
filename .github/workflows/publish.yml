@@ -2,19 +2,39 @@ name: Publish to PyPI
 
 on:
   push:
-    tags: ["v*"]
+    tags: ["v*.*.*"]
+  workflow_dispatch:  # re-run a failed release: pick the tag, not a branch
 
 jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml
+
   publish:
+    needs: ci
     runs-on: ubuntu-latest
     environment: pypi
     permissions:
       id-token: write  # lets PyPI verify this workflow, so no token is needed
-      contents: read
+      contents: write  # creates the GitHub release
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v10.3.3
       - name: Check tag matches pyproject version
         run: test "${GITHUB_REF_NAME#v}" = "$(uv version --short)"
+      - name: Release notes from CHANGELOG.md
+        run: |
+          awk -v h="## [${GITHUB_REF_NAME#v}]" 'index($0, "## [") == 1 {p = index($0, h) == 1; next} p' CHANGELOG.md > "$RUNNER_TEMP/notes.md"
+          test -s "$RUNNER_TEMP/notes.md"  # no section for this version: stop before uploading anything
       - run: uv build
-      - run: uv publish
+      - run: uv publish --check-url https://pypi.org/simple/  # skips files already uploaded, so re-runs pass
+      - name: GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          {
+            printf '\n### Install\n\n```\nuv tool install teachback==%s\n```\n\n### sha256\n\n```\n' "${GITHUB_REF_NAME#v}"
+            (cd dist && sha256sum *)
+            echo '```'
+          } >> "$RUNNER_TEMP/notes.md"
+          gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1 ||
+            gh release create "$GITHUB_REF_NAME" dist/* --title "$GITHUB_REF_NAME" --notes-file "$RUNNER_TEMP/notes.md"

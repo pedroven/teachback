@@ -19,6 +19,14 @@ Repository = "https://github.com/pedroven/teachback"
 [project.scripts]
 teachback = "teachback:main"
 
+[tool.ruff]
+line-length = 120
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = [
+    "ruff==0.15.20",
+]
