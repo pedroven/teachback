@@ -26,6 +26,11 @@ jobs:
       - run: uv run ruff format --check  # version pinned in pyproject.toml's dev group
       - run: uv run ruff check
       - run: uv run pytest
+      - name: The wheel ships the skill
+        if: matrix.python == '3.13'  # same build on both, so once is enough
+        run: |
+          uv build -q  # the wheel is built from the sdist, so this checks both
+          uv run python -m zipfile -l dist/*.whl | grep -q teachback/skills/teachback/SKILL.md
       - name: Audit dependencies
         if: matrix.python == '3.13'  # same lock file on both, so once is enough
         run: |

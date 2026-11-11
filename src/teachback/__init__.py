@@ -1,7 +1,10 @@
-import argparse
 import json
 import sys
 from importlib.metadata import version
+
+import click
+
+from teachback import agents
 
 __version__ = version("teachback")
 
@@ -39,7 +42,18 @@ def context() -> str:
     return f"{review}\n\n{CAPTURE}" if review else CAPTURE
 
 
+@click.group(invoke_without_command=True)
+@click.version_option(__version__, prog_name="teachback")
+@click.pass_context
+def main(ctx: click.Context) -> None:
+    """Learn while you work with coding agents."""
+    if ctx.invoked_subcommand is None:
+        click.echo(ctx.get_help())  # exit 0, as before click: click's default is exit 2
+
+
+@main.command()
 def hook() -> None:
+    """Print the session-start context (run by the agent, not by you)."""
     try:
         sys.stdin.buffer.read()  # the agent's session JSON: unused yet, and bytes so the locale can't fail it
         out = {"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": context()}}
@@ -48,18 +62,25 @@ def hook() -> None:
         pass  # never block a session, not even over a corrupt concepts.json
 
 
-def main(argv: list[str] | None = None) -> None:
-    parser = argparse.ArgumentParser(prog="teachback", description=f"teachback {__version__}")
-    sub = parser.add_subparsers(dest="command")
-    h = sub.add_parser("hook", help="print the session-start context (run by the agent, not by you)")
-    h.add_argument("--agent", help="the agent running the hook; every agent gets the same format for now")
-    sub.add_parser("mcp", help="run the MCP server over stdio (run by the agent, not by you)")
-    args = parser.parse_args(argv)
-    if args.command == "hook":
-        hook()
-    elif args.command == "mcp":
-        from teachback.server import app  # here, so the hook doesn't pay for importing the SDK
+@main.command()
+def mcp() -> None:
+    """Run the MCP server over stdio (run by the agent, not by you)."""
+    from teachback.server import app  # here, so the hook doesn't pay for importing the SDK
 
-        app.run()
-    else:
-        parser.print_help()
+    app.run()
+
+
+@main.command()
+@click.option("--agent", type=click.Choice(list(agents.AGENTS)), help="Only this agent.")
+@click.option("--yes", "-y", is_flag=True, help="Don't ask before applying.")
+def setup(agent: str | None, yes: bool) -> None:
+    """Install the pairing mode skill into every agent on PATH."""
+    sys.exit(agents.run(remove=False, only=agent, yes=yes))
+
+
+@main.command()
+@click.option("--agent", type=click.Choice(list(agents.AGENTS)), help="Only this agent.")
+@click.option("--yes", "-y", is_flag=True, help="Don't ask before applying.")
+def uninstall(agent: str | None, yes: bool) -> None:
+    """Remove what setup installed. This covers agents no longer on PATH too."""
+    sys.exit(agents.run(remove=True, only=agent, yes=yes))

@@ -1137,6 +1137,7 @@ name = "teachback"
 version = "0.0.3"
 source = { editable = "." }
 dependencies = [
+    { name = "click" },
     { name = "fsrs" },
     { name = "mcp" },
 ]
@@ -1149,6 +1150,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "click", specifier = ">=8,<9" },
     { name = "fsrs", specifier = ">=6,<7" },
     { name = "mcp", specifier = ">=2,<3" },
 ]

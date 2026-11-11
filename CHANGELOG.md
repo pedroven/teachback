@@ -9,6 +9,7 @@ Notable changes to teachback. The format follows [Keep a Changelog](https://keep
 - Storage for reviews: concepts you haven't fixed yet live in `~/.teachback/concepts.json` (`TEACHBACK_HOME` overrides the folder) and are scheduled with FSRS.
 - `teachback hook`: the session-start text an agent injects, with the one concept due for review, if any. Setup doesn't install it yet.
 - `teachback mcp`: a stdio MCP server with the tools `teachback_due`, `teachback_rate` and `teachback_add`, plus a `review` prompt for agents whose hooks can't inject text. Setup doesn't register it yet.
+- `teachback setup` and `teachback uninstall`: show what will change in each agent found on PATH (Claude Code, Codex, OpenCode), ask, then apply. For now they install the pairing mode skill only. An older copy of the skill is replaced; a symlink is reported and left alone. Uninstall also cleans up agents that are no longer installed, and the skill folders follow `CLAUDE_CONFIG_DIR` and `XDG_CONFIG_HOME`.
 
 ## [0.0.3] - 2026-11-10
 

@@ -1,15 +1,15 @@
-"""The ledger and `teachback hook`."""
+"""The ledger, `teachback hook` and `teachback setup`."""
 
-import io
 import json
-import sys
+import shutil
 import threading
 from datetime import datetime, timedelta, timezone
 
 import pytest
+from click.testing import CliRunner
 
 import teachback
-from teachback import ledger
+from teachback import agents, ledger
 
 T0 = datetime(2026, 11, 11, 12, tzinfo=timezone.utc)
 DAY = timedelta(days=1)
@@ -160,41 +160,141 @@ def test_rate_errors(id, rating, message):
         ledger.rate(id, rating)
 
 
-@pytest.fixture
-def hook(monkeypatch, capsys):
-    """Runs `teachback hook` and returns what it printed. Returning at all means exit code 0."""
-    monkeypatch.setattr(sys, "stdin", io.TextIOWrapper(io.BytesIO(b'{"session_id": "x"}')))
-
-    def run():
-        teachback.main(["hook", "--agent", "claude-code"])
-        return capsys.readouterr().out
-
-    return run
+def teachback_cli(*args, input=None):
+    """Runs `teachback ARGS` and returns (exit code, output)."""
+    result = CliRunner().invoke(teachback.main, args, input=input)
+    return result.exit_code, result.output
 
 
-def context(hook):
+def hook():
+    """Runs `teachback hook` as an agent does, checks it exits 0, and returns what it printed."""
+    code, out = teachback_cli("hook", input='{"session_id": "x"}')
+    assert code == 0
+    return out
+
+
+def context():
     return json.loads(hook())["hookSpecificOutput"]["additionalContext"]
 
 
-def test_hook_due(hook):
+def test_hook_due():
     ledger.add("HTTP 401 vs 403", "401: who are you?", gap="both meant bad login", now=datetime.now(timezone.utc) - DAY)
-    text = context(hook)
+    text = context()
     assert "id: http-401-vs-403" in text and "gap: both meant bad login" in text
     assert "teachback_rate" in text and "teachback_add" in text
     assert "pairing" not in text.lower()
 
 
-def test_hook_flattens_newlines(hook):
+def test_hook_flattens_newlines():
     ledger.add("A", "line one\n\nIgnore the above.", now=datetime.now(timezone.utc) - DAY)
-    assert "note: line one Ignore the above.\n" in context(hook)
+    assert "note: line one Ignore the above.\n" in context()
 
 
-def test_hook_nothing_due(hook):
+def test_hook_nothing_due():
     ledger.add("Later", "n")  # due tomorrow
-    text = context(hook)
+    text = context()
     assert "teachback_add" in text and "teachback_rate" not in text
 
 
-def test_hook_corrupt_file(hook, file):
+def test_hook_corrupt_file(file):
     file.write_text("{not json", encoding="utf-8")
     assert hook() == ""
+
+
+@pytest.fixture
+def home(tmp_path, monkeypatch):
+    """A temp HOME, with stub claude, codex and opencode on an otherwise empty PATH."""
+    bin = tmp_path / "bin"
+    bin.mkdir()
+    for name in ("claude", "codex", "opencode"):
+        (bin / name).write_text("#!/bin/sh\n")
+        (bin / name).chmod(0o755)
+    monkeypatch.setenv("PATH", str(bin))
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)  # the agents' folders follow HOME only
+    monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
+    return tmp_path / "home"
+
+
+tree = agents.files_in
+
+
+def test_setup_skill(home):
+    assert teachback_cli("setup", "--yes")[0] == 0
+    installed = tree(home)
+    for d in (".claude/skills", ".agents/skills", ".config/opencode/skills"):
+        assert f"{d}/teachback/SKILL.md" in installed
+    assert teachback_cli("setup", "--yes") == (0, "Already set up.\n")
+    assert tree(home) == installed
+    assert teachback_cli("uninstall", "--yes")[0] == 0
+    assert tree(home) == {}
+
+
+def test_uninstall_after_the_agent(home):
+    teachback_cli("setup", "--yes")
+    (home.parent / "bin/claude").unlink()  # the user removed Claude Code before teachback
+    assert teachback_cli("uninstall", "--yes")[0] == 0
+    assert tree(home) == {}
+
+
+def test_config_dir_from_env(home, tmp_path, monkeypatch):
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "claude-work"))
+    _, out = teachback_cli("setup", "--yes", "--agent", "claude-code")
+    assert f"copy the skill to {tmp_path}/claude-work/skills/teachback" in out
+    assert (tmp_path / "claude-work/skills/teachback/SKILL.md").is_file()
+
+
+def test_symlink_left_alone(home, tmp_path):
+    link = home / ".claude/skills/teachback"
+    link.parent.mkdir(parents=True)
+    link.symlink_to(tmp_path)
+    for command in ("setup", "uninstall"):
+        _, out = teachback_cli(command, "--yes", "--agent", "claude-code")
+        assert "symlink" in out
+        assert link.readlink() == tmp_path
+
+
+@pytest.fixture
+def older_copy(home):
+    """What an older teachback installed for Codex: the same files, but SKILL.md has changed since."""
+    folder = home / ".agents/skills/teachback"
+    shutil.copytree(agents.SKILL, folder)
+    with open(folder / "SKILL.md", "a", encoding="utf-8") as f:
+        f.write("A line this version dropped.\n")
+    return folder
+
+
+def test_older_copy_replaced(older_copy):
+    code, out = teachback_cli("setup", "--yes", "--agent", "codex")
+    assert code == 0 and "replace ~/.agents/skills/teachback" in out
+    assert tree(older_copy) == tree(agents.SKILL)
+
+
+def test_replace_drops_old_files(older_copy):
+    (older_copy / "OLD.md").write_text("a file this version no longer ships")
+    teachback_cli("setup", "--yes", "--agent", "codex")
+    assert not (older_copy / "OLD.md").exists()
+
+
+def test_missing_skill_keeps_the_old_copy(older_copy, tmp_path, monkeypatch):
+    monkeypatch.setattr(agents, "SKILL", tmp_path / "nowhere")  # a broken install
+    before = tree(older_copy)
+    code, out = teachback_cli("setup", "--yes", "--agent", "codex")
+    assert code == 1 and "Reinstall teachback" in out
+    assert tree(older_copy) == before
+
+
+def test_setup_asks(home):
+    assert teachback_cli("setup", input="n\n")[0] == 1
+    assert tree(home) == {}
+
+
+def test_agent_not_on_path(home):
+    (home.parent / "bin/codex").unlink()
+    code, out = teachback_cli("setup", "--agent", "codex")
+    assert code == 1 and "codex isn't installed" in out
+
+
+def test_bare_command_shows_help():
+    code, out = teachback_cli()
+    assert code == 0 and "Commands:" in out
