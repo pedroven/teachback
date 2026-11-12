@@ -5,7 +5,7 @@
 You need [uv](https://docs.astral.sh/uv/).
 
 ```
-uv run pytest      # tests/test_teachback.py: ledger and hook; tests/test_server.py: MCP server
+uv run pytest      # one test file per module: tests/test_ledger.py, test_agents.py, test_cli.py, test_server.py
 uv run ruff format
 uv run ruff check
 ```
