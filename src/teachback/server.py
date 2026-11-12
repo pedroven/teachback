@@ -21,6 +21,7 @@ app = MCPServer(
         "- Ask at most one review question per session.\n"
         "- When the user shows a gap in a concept, offer to add it with teachback_add. "
         "Add it only if they agree.\n"
+        "- When the user asks you to add a concept to their reviews, add it with teachback_add.\n"
         "- Grade each review answer honestly as Again, Hard, Good or Easy, and tell the user the grade."
     ),
 )
@@ -61,9 +62,10 @@ def teachback_rate(id: str, rating: str) -> str:
 
 @app.tool(structured_output=False)
 def teachback_add(title: str, note: str, source: str = "", gap: str = "") -> str:
-    """Add a concept the user hasn't fixed yet to their reviews.
+    """Add a concept to the user's teachback reviews: spaced repetition, where a later session asks them one question
+    about it.
 
-    Call it only after you offered to add it and the user agreed. Never add one on your own.
+    Call it when the user asks to add a concept, or after you offered and they agreed. Never add one on your own.
     title: a short name. note: the concept in one or two sentences. source: where it came up, such as a
     repo or file. gap: what the user missed or got wrong.
     """
