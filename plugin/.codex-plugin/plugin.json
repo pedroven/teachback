@@ -1,6 +1,6 @@
 {
   "name": "teachback",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Learn while you work: a pairing mode that makes you explain before the agent codes, and spaced reviews of concepts you haven't fixed yet. Runs the teachback CLI, which must be on PATH. Codex runs the hook only after you trust it in /hooks.",
   "author": {
     "name": "Pedro Costa",

@@ -4,6 +4,8 @@ Notable changes to teachback. The format follows [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-11-12
+
 ### Changed
 
 - The GitHub release notes say that their install command pins the version, and how to move to newer versions later: `uv tool install teachback@latest`.
