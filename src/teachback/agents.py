@@ -3,12 +3,13 @@
 Each agent installs teachback its own official way, so a change in one agent only touches its class:
 - Claude Code and Codex get the teachback plugin (skill, SessionStart hook and MCP server) through their own plugin
   CLIs. This repo is the marketplace: see .claude-plugin/ and .agents/plugins/.
-- OpenCode installs JS plugin packages (`opencode plugin add`), and teachback has none yet, so the pairing mode skill
-  is copied into OpenCode's skills folder, and `opencode mcp add` registers the MCP server.
+- OpenCode gets the pairing mode skill copied into its skills folder, a plugin file (opencode.js) copied into its
+  plugins folder in place of the hook, and the MCP server registered through `opencode mcp add`.
 """
 
 import json
 import os
+import re
 import shutil
 import stat
 import subprocess
@@ -30,6 +31,8 @@ TIMEOUT = 120  # seconds an agent CLI gets: a marketplace add clones the repo fr
 SKILL = Path(__file__).parent / "skills" / "teachback"
 if not SKILL.is_dir():
     SKILL = Path(__file__).parents[2] / "skills" / "teachback"
+# OpenCode runs no hook commands: this plugin does what the SessionStart hook does in the other agents.
+OPENCODE_PLUGIN = Path(__file__).with_name("opencode.js")
 
 
 class Step(NamedTuple):
@@ -162,8 +165,22 @@ class OpenCode(Agent):
         return self.config_dir / "skills"
 
     def plan(self, remove: bool) -> list[Step]:
-        skill = self.skill_step(remove)
-        return ([skill] if skill else []) + self.mcp_steps(remove)
+        skill = copy_step(SKILL, self.skills_dir / "teachback", "skill", remove)
+        plugin = copy_step(OPENCODE_PLUGIN, self.config_dir / "plugins" / "teachback.js", "plugin", remove)
+        # Only a copy or replace: a symlink keeps its own note, and uninstall works on any version.
+        if plugin and plugin.apply and not remove and (version := self.version()) < 2:
+            # Written for OpenCode 2's plugin API: OpenCode 1 calls each export as a function and fails to load it.
+            found = f"OpenCode {version}" if version else "an unknown version"
+            plugin = Step(f"skip the plugin: it needs OpenCode 2 or later, not {found}")
+        return [step for step in (skill, plugin) if step] + self.mcp_steps(remove)
+
+    def version(self) -> int:
+        """OpenCode's major version, or 0 when `opencode --version` doesn't say."""
+        try:
+            match = re.search(r"(\d+)\.\d+", cli("opencode --version"))
+        except (OSError, subprocess.SubprocessError):
+            return 0
+        return int(match[1]) if match else 0
 
     def mcp_steps(self, remove: bool) -> list[Step]:
         """Register the MCP server with OpenCode's CLI, or remove it from each config file that has it.
@@ -186,29 +203,6 @@ class OpenCode(Agent):
         if not remove and not registered and not steps:  # with a file it can't read, uninstall couldn't undo an add
             steps.append(cli_step(self.add_mcp))
         return steps
-
-    def skill_step(self, remove: bool) -> Step | None:
-        """Copy the skill into the skills folder, or remove it. None when there's nothing to do."""
-        folder = self.skills_dir / "teachback"
-        shown = tilde(folder)
-
-        if folder.is_symlink():
-            # Likely a dev symlink into this repo: never replace or delete it.
-            return Step(f"leave {shown} alone: it's a symlink")
-
-        if remove:
-            if not folder.exists():
-                return None
-            return Step(f"remove {shown}", lambda: shutil.rmtree(folder))
-
-        if not SKILL.is_dir():
-            # Checked while planning: a replace deletes the old copy first, and there would be nothing to copy back.
-            raise click.ClickException(f"this install of teachback has no skill at {SKILL}. Reinstall teachback.")
-        if not folder.exists():
-            return Step(f"copy the skill to {shown}", lambda: shutil.copytree(SKILL, folder))
-        if files_in(folder) == files_in(SKILL):
-            return None  # already installed
-        return Step(f"replace {shown}: it differs from this version's skill", lambda: replace_skill(folder))
 
 
 AGENTS = {agent.name: agent for agent in (ClaudeCode(), Codex(), OpenCode())}
@@ -247,7 +241,9 @@ def failure(e: Exception) -> str:
 
 
 def files_in(folder: Path) -> dict[str, bytes]:
-    """Every file under folder, as {relative path: content}."""
+    """Every file under folder, as {relative path: content}. A file is its own one entry."""
+    if folder.is_file():
+        return {"": folder.read_bytes()}
     files = {}
     for path in folder.rglob("*"):
         if path.is_file():
@@ -261,10 +257,48 @@ def tilde(path: Path) -> str:
     return f"~/{path.relative_to(home).as_posix()}" if path.is_relative_to(home) else str(path)
 
 
-def replace_skill(folder: Path) -> None:
-    """Swap an older copy of the skill, or one edited in place, for this version's."""
-    shutil.rmtree(folder)
-    shutil.copytree(SKILL, folder)
+def copy_step(source: Path, target: Path, what: str, remove: bool) -> Step | None:
+    """Copy source, a folder or a file, to target, or remove it. None when there's nothing to do."""
+    shown = tilde(target)
+
+    if target.is_symlink():
+        # Likely a dev symlink into this repo: never replace or delete it.
+        return Step(f"leave {shown} alone: it's a symlink")
+
+    if remove:
+        if not target.exists():
+            return None
+        return Step(f"remove {shown}", partial(delete, target))
+
+    if not source.exists():
+        # Checked while planning: a replace deletes the old copy first, and there would be nothing to copy back.
+        raise click.ClickException(f"this install of teachback has no {what} at {source}. Reinstall teachback.")
+    if not target.exists():
+        return Step(f"copy the {what} to {shown}", partial(copy, source, target))
+    if files_in(target) == files_in(source):
+        return None  # already installed
+    return Step(f"replace {shown}: it differs from this version's {what}", partial(replace, source, target))
+
+
+def copy(source: Path, target: Path) -> None:
+    if source.is_dir():
+        shutil.copytree(source, target)
+    else:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(source, target)
+
+
+def delete(path: Path) -> None:
+    if path.is_dir():
+        shutil.rmtree(path)
+    else:
+        path.unlink()
+
+
+def replace(source: Path, target: Path) -> None:
+    """Swap an older copy, or one edited in place, for this version's."""
+    delete(target)
+    copy(source, target)
 
 
 def read_config(file: Path) -> tuple[dict, dict]:
@@ -306,7 +340,7 @@ def remove_mcp(file: Path) -> None:
 def detect(only: str | None, remove: bool) -> list[Agent]:
     """The agents to work on: every supported agent on PATH, or just `only`.
 
-    Removing also covers OpenCode once it's gone, since deleting its skill copy doesn't need OpenCode. A plugin agent
+    Removing also covers OpenCode once it's gone, since deleting its copied files doesn't need OpenCode. A plugin agent
     not on PATH is skipped, since removing its plugin needs its CLI, unless `only` names it: then it says it couldn't
     check, instead of a bare "Nothing to remove.".
     """

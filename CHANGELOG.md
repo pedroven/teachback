@@ -10,7 +10,12 @@ Notable changes to teachback. The format follows [Keep a Changelog](https://keep
 - `teachback hook`: the session-start text an agent injects, with the one concept due for review, if any.
 - `teachback mcp`: a stdio MCP server with the tools `teachback_due`, `teachback_rate` and `teachback_add`, plus a `review` prompt for agents whose hooks can't inject text. `teachback_due` is marked read-only, so Codex calls it without asking; it still asks before `teachback_add` and `teachback_rate`.
 - A Claude Code and Codex plugin: the pairing mode skill, a SessionStart hook that runs `teachback hook`, and the `teachback mcp` server. This repository is its marketplace (`pedroven/teachback`). Codex runs the hook only after you trust it in `/hooks`, and passes `TEACHBACK_HOME` on to the MCP server, which it otherwise drops.
-- `teachback setup` and `teachback uninstall`: show what will change in each agent found on PATH, ask, then apply. Claude Code and Codex get the plugin through their own `plugin` commands, and a skill copied there by hand earlier is pointed out so it can be deleted; OpenCode gets the skill copied into its skills folder (an older copy is replaced, a symlink is left alone, and the folder follows `XDG_CONFIG_HOME`) and the MCP server registered through `opencode mcp add`; uninstall removes it from `opencode.json` or `opencode.jsonc` (through a symlink, keeping the file's permissions); a config it can't read is reported and left alone. Uninstall also covers OpenCode after it is gone.
+- `teachback setup` and `teachback uninstall`: show what will change in each agent found on PATH, ask, then apply.
+  - Claude Code and Codex get the plugin through their own `plugin` commands. A skill copied there by hand earlier is pointed out so you can delete it.
+  - OpenCode gets the skill copied into its skills folder. An older copy is replaced, a symlink is left alone, and the folder follows `XDG_CONFIG_HOME`.
+  - OpenCode 2 or later also gets a plugin in its plugins folder. It adds the session-start review text to each session, as the hook does in the other agents.
+  - OpenCode's MCP server is registered through `opencode mcp add`. Uninstall removes it from `opencode.json` or `opencode.jsonc`, through a symlink and keeping the file's permissions. A config it can't read is reported and left alone.
+  - Uninstall also covers OpenCode after it is gone.
 - Pairing mode offers to add a concept you're missing to your reviews, once, in the turn right after you pass the explanation gate. It only does this when the `teachback_add` tool is available.
 
 ## [0.0.3] - 2026-11-10

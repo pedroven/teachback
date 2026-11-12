@@ -1,8 +1,11 @@
 """The ledger, `teachback hook` and `teachback setup`."""
 
 import json
+import os
+import shlex
 import shutil
 import stat
+import subprocess
 import sys
 import threading
 from datetime import datetime, timedelta, timezone
@@ -229,6 +232,8 @@ def calls(home, monkeypatch):
     def cli(command):
         calls.append(command)
         agent, args = command.split(" ", 1)
+        if command == "opencode --version":
+            return "opencode v2.2.6\n"
         if agent == "opencode":
             file = home / ".config/opencode/opencode.json"
             config = json.loads(file.read_text()) if file.exists() else {}
@@ -257,10 +262,11 @@ def calls(home, monkeypatch):
 
 tree = agents.files_in
 OPENCODE_CONFIG = ".config/opencode/opencode.json"
+OPENCODE_PLUGIN = ".config/opencode/plugins/teachback.js"
 
 
 def changes(calls):
-    return [c for c in calls if not c.endswith("--json")]  # every command but the lists
+    return [c for c in calls if not c.endswith(("--json", "--version"))]  # every command but the reads
 
 
 def test_setup(calls, home):
@@ -274,9 +280,10 @@ def test_setup(calls, home):
         "opencode mcp add --global teachback -- teachback mcp",
     ]
     installed = tree(home)
-    assert set(installed) == {OPENCODE_CONFIG} | {
+    assert set(installed) == {OPENCODE_CONFIG, OPENCODE_PLUGIN} | {
         f".config/opencode/skills/teachback/{name}" for name in tree(agents.SKILL)
     }
+    assert installed[OPENCODE_PLUGIN] == agents.OPENCODE_PLUGIN.read_bytes()
 
     calls.clear()
     assert teachback_cli("setup", "--yes") == (0, "Already set up.\n")
@@ -419,6 +426,65 @@ def test_config_changed_while_asking(calls, home, monkeypatch):
     assert file.read_text() == '{"mcp": null}'
 
 
+@pytest.mark.skipif(not shutil.which("node"), reason="needs node")
+def test_opencode_plugin(tmp_path):
+    """opencode.js with a fake OpenCode: the hook text goes into a root session's every request, from one run."""
+    real = Path(sys.executable).with_name("teachback")  # the installed script, which reads stdin to EOF
+    if not real.exists():
+        pytest.skip("needs the teachback script next to python, as `uv run` installs it")
+    bin = tmp_path / "bin"
+    bin.mkdir()
+    (bin / "teachback").write_text(f'#!/bin/sh\necho run >> "$0.log"\nexec {shlex.quote(str(real))} "$@"\n')
+    (bin / "teachback").chmod(0o755)
+    text = context()
+    script = """
+    const plugin = (await import(process.argv[1])).default;
+    const here = { directory: "/repo" };
+    const sessions = { root: { location: here }, sub: { parentID: "root", location: here },
+                       elsewhere: { location: { directory: "/other" } } };
+    let context;
+    await plugin.setup({
+      location: here,
+      session: { get: async ({ sessionID }) => sessions[sessionID], hook: async (_, fn) => { context = fn; } },
+    });
+    const pushed = [];
+    for (const sessionID of ["root", "root", "sub", "elsewhere"]) {
+      const system = [];
+      await context({ sessionID, system });
+      pushed.push(system.map((part) => part.text));
+    }
+    console.log(JSON.stringify(pushed));
+    """
+
+    def run(path):
+        node = [shutil.which("node"), "--input-type=module", "-e", script, str(agents.OPENCODE_PLUGIN)]
+        env = {"PATH": path, "TEACHBACK_HOME": os.environ["TEACHBACK_HOME"]}
+        return subprocess.run(node, capture_output=True, text=True, check=True, env=env, timeout=30).stdout
+
+    assert json.loads(run(str(bin))) == [[text], [text], [], []]
+    assert (bin / "teachback.log").read_text() == "run\n"  # once per session, not per request
+    assert json.loads(run(str(tmp_path / "empty"))) == [[], [], [], []]  # no teachback on PATH: no text, no crash
+
+
+@pytest.mark.parametrize(("version", "found"), [("opencode v1.14.30", "OpenCode 1"), ("unknown", "an unknown version")])
+def test_opencode_plugin_needs_2(home, monkeypatch, version, found):
+    """OpenCode 1 can't load a v2 plugin, so setup leaves it out and says why. The skill and MCP server still go in."""
+    monkeypatch.setattr(agents, "cli", lambda command: version if command == "opencode --version" else "")
+    code, out = teachback_cli("setup", "--yes", "--agent", "opencode")
+    assert code == 0 and f"skip the plugin: it needs OpenCode 2 or later, not {found}\n" in out
+    assert not (home / OPENCODE_PLUGIN).exists() and (home / ".config/opencode/skills/teachback").is_dir()
+
+
+def test_plugin_symlink_left_alone_on_opencode_1(home, monkeypatch):
+    """A symlinked plugin keeps its own note on any version, and setup doesn't ask OpenCode for one."""
+    monkeypatch.setattr(agents, "cli", lambda command: "opencode v1.14.30" if command == "opencode --version" else "")
+    link = home / OPENCODE_PLUGIN
+    link.parent.mkdir(parents=True)
+    link.symlink_to(agents.OPENCODE_PLUGIN)
+    _, out = teachback_cli("setup", "--yes", "--agent", "opencode")
+    assert "teachback.js alone: it's a symlink" in out and "skip the plugin" not in out
+
+
 def test_symlink_left_alone(home, tmp_path):
     link = home / ".config/opencode/skills/teachback"
     link.parent.mkdir(parents=True)
@@ -457,6 +523,23 @@ def test_missing_skill_keeps_the_old_copy(older_copy, tmp_path, monkeypatch):
     code, out = teachback_cli("setup", "--yes", "--agent", "opencode")
     assert code == 1 and "Reinstall teachback" in out
     assert tree(older_copy) == before
+
+
+def test_older_plugin_replaced(calls, home):
+    plugin = home / OPENCODE_PLUGIN
+    plugin.parent.mkdir(parents=True)
+    plugin.write_text("// what an older teachback installed\n")
+    _, out = teachback_cli("setup", "--yes", "--agent", "opencode")
+    assert "replace ~/.config/opencode/plugins/teachback.js: it differs from this version's plugin" in out
+    assert plugin.read_bytes() == agents.OPENCODE_PLUGIN.read_bytes()
+
+
+def test_uninstall_after_opencode(calls, home):
+    """OpenCode removed before teachback: uninstall still deletes the files setup copied for it."""
+    teachback_cli("setup", "--yes", "--agent", "opencode")
+    (home.parent / "bin/opencode").unlink()
+    assert teachback_cli("uninstall", "--yes")[0] == 0
+    assert not (home / OPENCODE_PLUGIN).exists() and not (home / ".config/opencode/skills/teachback").exists()
 
 
 def test_setup_asks(calls, home):
