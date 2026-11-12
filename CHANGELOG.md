@@ -4,6 +4,8 @@ Notable changes to teachback. The format follows [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-11-12
+
 ### Added
 
 - `teachback setup --pin` pins the Claude Code and Codex plugin to the release tag of the CLI's version, instead of following `main`. A plain `teachback setup` leaves a pinned plugin on its tag, and says how to move it.
