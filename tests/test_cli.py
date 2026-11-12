@@ -56,7 +56,7 @@ def test_hook_corrupt_file(file):
 def test_plugin_versions():
     """Claude Code and Codex use the plugin's version to tell when it has changed."""
     root = Path(__file__).parents[1]
-    for manifest in (".claude-plugin/plugin.json", ".codex-plugin/plugin.json"):
+    for manifest in ("plugin/.claude-plugin/plugin.json", "plugin/.codex-plugin/plugin.json"):
         assert json.loads((root / manifest).read_text())["version"] == teachback.__version__, manifest
 
 

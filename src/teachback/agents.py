@@ -2,7 +2,8 @@
 
 Each agent installs teachback its own official way, so a change in one agent only touches its class:
 - Claude Code and Codex get the teachback plugin (skill, SessionStart hook and MCP server) through their own plugin
-  CLIs. This repo is the marketplace: see .claude-plugin/ and .agents/plugins/.
+  CLIs. This repo is the marketplace (.claude-plugin/ and .agents/plugins/), and the plugin is its plugin/ folder:
+  Codex re-asks to trust the hook whenever any file of the plugin changes, so it holds only what agents load.
 - OpenCode gets the pairing mode skill copied into its skills folder, a plugin file (opencode.js) copied into its
   plugins folder in place of the hook, and the MCP server registered through `opencode mcp add`.
 """
@@ -27,10 +28,10 @@ PLUGIN = "teachback@teachback"  # plugin@marketplace, named in plugin.json and m
 TIMEOUT = 120  # seconds an agent CLI gets: a marketplace add clones the repo from GitHub
 
 # The pairing mode skill, for OpenCode. Installed from the wheel, it sits next to this file (pyproject.toml copies it
-# there). Run from a repo checkout (`uv run`), it is only in the repo's top-level skills/ folder.
+# there). Run from a repo checkout (`uv run`), it is only in the repo's plugin/skills/ folder.
 SKILL = Path(__file__).parent / "skills" / "teachback"
 if not SKILL.is_dir():
-    SKILL = Path(__file__).parents[2] / "skills" / "teachback"
+    SKILL = Path(__file__).parents[2] / "plugin" / "skills" / "teachback"
 # OpenCode runs no hook commands: this plugin does what the SessionStart hook does in the other agents.
 OPENCODE_PLUGIN = Path(__file__).with_name("opencode.js")
 
@@ -145,7 +146,7 @@ class Codex(PluginAgent):
     def plan(self, remove: bool) -> list[Step]:
         steps = super().plan(remove)
         if any(step.text == self.install_plugin for step in steps):
-            # Codex skips an untrusted hook without a word, and only the user can trust it.
+            # Only the user can trust a hook. Codex 0.167 asks on start; 0.155 skipped an untrusted hook without a word.
             steps.append(Step("then open Codex, run /hooks, and trust teachback's SessionStart hook"))
         return steps
 

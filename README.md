@@ -13,7 +13,7 @@ Pairing mode is a skill. Until `teachback setup` exists, copy it into your agent
 
 ```
 git clone https://github.com/pedroven/teachback
-cp -r teachback/skills/teachback ~/.claude/skills/
+cp -r teachback/plugin/skills/teachback ~/.claude/skills/
 ```
 
 Run `/teachback` to turn it on and `/teachback off` to turn it off. It was first tested as `/learn`.

@@ -28,7 +28,7 @@ line-length = 120
 testpaths = ["tests"]
 
 [tool.hatch.build.targets.wheel.force-include]
-"skills/teachback" = "teachback/skills/teachback"  # skills/ stays the one source
+"plugin/skills/teachback" = "teachback/skills/teachback"  # plugin/skills/ stays the one source
 
 [build-system]
 requires = ["hatchling"]

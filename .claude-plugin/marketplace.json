@@ -10,7 +10,7 @@
     {
       "name": "teachback",
       "description": "Pairing mode and spaced reviews of concepts you haven't fixed yet.",
-      "source": "./",
+      "source": "./plugin",
       "category": "learning"
     }
   ]
