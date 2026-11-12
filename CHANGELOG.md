@@ -7,6 +7,16 @@ Notable changes to teachback. The format follows [Keep a Changelog](https://keep
 ### Changed
 
 - The GitHub release notes say that their install command pins the version, and how to move to newer versions later: `uv tool install teachback@latest`.
+- The release and CI workflows run their actions by commit SHA, not by a tag that can be moved.
+- The pairing mode skill no longer says teachback has no SessionStart hook: it says no hook or marker file turns the mode on.
+
+### Fixed
+
+- After Claude Code compacts a long session, the hook no longer gives the agent a second concept to ask about. A concept not asked stays due for the next session.
+- `teachback_rate` refuses a concept that isn't due yet, so two open sessions can't grade the same concept twice.
+- A `concepts.json` teachback can't read no longer silently stops all reviews: the hook tells the agent to tell the user why.
+- When a Claude Code or Codex step of `teachback setup` fails, setup skips that agent's later steps and says to run `teachback setup` again. A failed `setup --pin` used to go on to a failing install, leaving no plugin.
+- `teachback uninstall` notes that removing the Claude Code marketplace also uninstalls teachback from the projects that installed it, as setup does.
 
 ## [0.1.2] - 2026-11-12
 

@@ -42,6 +42,7 @@ MARKETPLACE = "pedroven/teachback"  # the GitHub repo
 PLUGIN = "teachback@teachback"  # plugin@marketplace
 VERSION = version("teachback")
 TIMEOUT = 120  # seconds: a marketplace add clones the repo from GitHub
+IN_PROJECTS_NOTE = "note: removing the marketplace also uninstalls teachback from the projects that installed it"
 
 WHEEL_SKILL = Path(__file__).parent / "skills" / "teachback"  # pyproject.toml copies it there
 REPO_SKILL = Path(__file__).parents[2] / "plugin" / "skills" / "teachback"  # for `uv run` from a checkout
@@ -117,9 +118,7 @@ class PluginAgent(Agent):
         steps = [cli_step(command) for command in commands]
 
         if self.remove_marketplace in commands and have.in_projects:
-            steps.append(
-                Step("note: removing the marketplace also uninstalls teachback from the projects that installed it")
-            )
+            steps.append(Step(IN_PROJECTS_NOTE))
         if not pin and have.pinned_to not in (None, tag):
             steps.append(
                 Step(f"note: the plugin is pinned to {have.pinned_to}. `teachback setup --pin` moves it to {tag}")
@@ -139,6 +138,8 @@ class PluginAgent(Agent):
             steps.append(cli_step(self.uninstall_plugin))
         if have.marketplace_added:
             steps.append(cli_step(self.remove_marketplace))
+            if have.in_projects:
+                steps.append(Step(IN_PROJECTS_NOTE))
         return steps
 
 
@@ -440,8 +441,18 @@ def run(*, remove: bool, only: str | None, yes: bool, pin: bool = False) -> int:
     if not yes and not click.confirm("Apply?"):
         print("Nothing changed.")
         return 1
-    applied = [apply(agent, step) for agent, step in todo]  # a list, so a failure doesn't stop the rest
-    return 0 if all(applied) else 1
+    ok, stopped = True, set()
+    for agent, step in todo:  # a failure doesn't stop the other agents
+        if agent in stopped:
+            continue
+        if not apply(agent, step):
+            ok = False
+            # A plugin agent's setup steps build on each other: after a failed marketplace add, an install fails too.
+            # OpenCode's don't: a failed skill copy still leaves the MCP server to register.
+            if not remove and isinstance(agent, PluginAgent):
+                stopped.add(agent)
+                print(f"stopped {agent.name}: run `teachback setup` again to restore it")
+    return 0 if ok else 1
 
 
 def apply(agent: Agent, step: Step) -> bool:

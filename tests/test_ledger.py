@@ -122,6 +122,14 @@ def test_again_waits_less_than_good():
     assert ledger.rate("a", "Again", T0 + DAY) < ledger.rate("b", "Good", T0 + DAY)
 
 
+def test_rate_twice():
+    """Two open sessions got the same concept: the second grade would test short-term memory."""
+    ledger.add("A", "n", now=T0)
+    ledger.rate("a", "Good", T0 + DAY)
+    with pytest.raises(ValueError, match="'a' was already reviewed; next review 20"):
+        ledger.rate("a", "Good", T0 + DAY)
+
+
 def test_add_duplicate():
     ledger.add("HTTP 401 vs 403", "n", now=T0)
     with pytest.raises(ValueError, match="already exists"):

@@ -11,16 +11,10 @@ import sys
 from pathlib import Path
 
 import pytest
-from click.testing import CliRunner
 
 import teachback
+from conftest import teachback_cli
 from teachback import agents
-
-
-def teachback_cli(*args, input=None):
-    """Runs `teachback ARGS` and returns (exit code, output)."""
-    result = CliRunner().invoke(teachback.main, args, input=input)
-    return result.exit_code, result.output
 
 
 @pytest.fixture
@@ -243,6 +237,21 @@ def test_agent_cli_fails(home):
     code, out = teachback_cli("setup", "--yes", "--agent", "claude-code")
     assert code == 1
     assert "failed  claude-code: claude plugin marketplace add pedroven/teachback: no network" in out
+    # The install would fail too, with no marketplace to install from: skipped, with how to recover.
+    assert "claude-code: claude plugin install" not in out
+    assert "stopped claude-code: run `teachback setup` again to restore it" in out
+
+
+def test_opencode_goes_on_after_a_failure(calls, home, monkeypatch):
+    """OpenCode's steps don't build on each other: a failed copy still leaves the MCP server to register."""
+
+    def fail(source, target):
+        raise PermissionError(f"can't write {target}")
+
+    monkeypatch.setattr(agents, "copy", fail)
+    code, out = teachback_cli("setup", "--yes", "--agent", "opencode")
+    assert code == 1 and "failed  opencode: copy the skill" in out and "stopped" not in out
+    assert "opencode mcp add --global teachback -- teachback mcp" in calls
 
 
 def test_agent_cli_times_out(home, monkeypatch):
@@ -264,7 +273,9 @@ def test_project_scope_install_is_not_enough(home, monkeypatch):
     assert "done    claude-code: claude plugin install teachback@teachback" in out and "remove" not in out
 
     _, out = teachback_cli("setup", "--yes", "--agent", "claude-code", "--pin")
-    assert "note: removing the marketplace also uninstalls teachback from the projects that installed it" in out
+    assert agents.IN_PROJECTS_NOTE in out
+    _, out = teachback_cli("uninstall", "--yes", "--agent", "claude-code")
+    assert agents.IN_PROJECTS_NOTE in out
 
 
 def test_older_skill_copy_noted(calls, home):

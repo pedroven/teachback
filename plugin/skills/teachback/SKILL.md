@@ -24,9 +24,8 @@ The user builds; you make sure they can explain what they built.
 
 Not a standing mode. It does not activate because a task looks educational,
 because the user seems to be learning, or because a previous session ran it.
-There is deliberately no SessionStart hook and no marker file — unlike the
-always-on modes on this machine, this one costs the user roughly a third of
-their throughput, so it turns on only when they say so.
+No hook or marker file turns it on: it costs roughly a third of their
+throughput, so it turns on only when they say so.
 
 Wanting an explanation is not wanting this mode. Answer the question.
 

@@ -55,11 +55,20 @@ def main(ctx: click.Context) -> None:
 def hook() -> None:
     """Print the session-start context (run by the agent, not by you)."""
     try:
-        sys.stdin.buffer.read()  # the agent's session JSON: unused yet, and bytes so the locale can't fail it
-        out = {"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": context()}}
+        session = json.loads(sys.stdin.buffer.read())  # bytes, so the locale can't fail it
+        source = session.get("source") if isinstance(session, dict) else None
+    except Exception:  # no or odd session JSON: OpenCode's plugin sends none
+        source = None
+    try:
+        # Claude Code runs this again after compacting: the session may already have had its one question.
+        text = CAPTURE if source == "compact" else context()
+    except Exception as e:  # a corrupt concepts.json, say: still remind, and say why nothing is due
+        text = f"{CAPTURE}\n\nteachback can't read its concepts: {e}. Tell the user."
+    out = {"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": text}}
+    try:
         print(json.dumps(out))  # ASCII escapes, so a non-UTF-8 stdout can't fail it
     except Exception:
-        pass  # never block a session, not even over a corrupt concepts.json
+        pass  # never block a session
 
 
 @main.command()

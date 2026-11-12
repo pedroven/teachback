@@ -4,29 +4,22 @@ import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from click.testing import CliRunner
-
 import teachback
+from conftest import teachback_cli
 from teachback import ledger
 
 DAY = timedelta(days=1)
 
 
-def teachback_cli(*args, input=None):
-    """Runs `teachback ARGS` and returns (exit code, output)."""
-    result = CliRunner().invoke(teachback.main, args, input=input)
-    return result.exit_code, result.output
-
-
-def hook():
+def hook(source="startup"):
     """Runs `teachback hook` as an agent does, checks it exits 0, and returns what it printed."""
-    code, out = teachback_cli("hook", input='{"session_id": "x"}')
+    code, out = teachback_cli("hook", input=json.dumps({"session_id": "x", "source": source}))
     assert code == 0
     return out
 
 
-def context():
-    return json.loads(hook())["hookSpecificOutput"]["additionalContext"]
+def context(source="startup"):
+    return json.loads(hook(source))["hookSpecificOutput"]["additionalContext"]
 
 
 def test_hook_due():
@@ -48,9 +41,17 @@ def test_hook_nothing_due():
     assert "teachback_add" in text and "teachback_rate" not in text
 
 
+def test_hook_after_compaction():
+    """Claude Code runs the hook again after compacting: no second question in the same session."""
+    ledger.add("A", "n", now=datetime.now(timezone.utc) - DAY)
+    assert context("compact") == teachback.CAPTURE
+    assert "id: a" in context("resume")
+
+
 def test_hook_corrupt_file(file):
     file.write_text("{not json", encoding="utf-8")
-    assert hook() == ""
+    text = context()
+    assert "teachback_add" in text and f"teachback can't read its concepts: {file} is not valid JSON" in text
 
 
 def test_plugin_versions():

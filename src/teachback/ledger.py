@@ -116,7 +116,11 @@ def rate(id: str, rating: str, now: datetime | None = None) -> int | str:
     with edit() as data:
         if id not in data["concepts"]:
             raise ValueError(f"no concept {id!r} to review")
-        card, _ = SCHEDULER.review_card(Card.from_dict(data["concepts"][id]["card"]), grade, now)
+        card = Card.from_dict(data["concepts"][id]["card"])
+        # Another open session may have graded it minutes ago: a second grade would test short-term memory.
+        if card.due > now:
+            raise ValueError(f"{id!r} was already reviewed; next review {card.due.astimezone():%Y-%m-%d}")
+        card, _ = SCHEDULER.review_card(card, grade, now)
         data["concepts"][id]["card"] = card.to_dict()
         if card.due - now > RETIRE_AFTER:
             data["archive"][id] = data["concepts"].pop(id)
