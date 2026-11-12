@@ -1140,6 +1140,7 @@ dependencies = [
     { name = "click" },
     { name = "fsrs" },
     { name = "mcp" },
+    { name = "tomli", marker = "python_full_version < '3.11'" },
 ]
 
 [package.dev-dependencies]
@@ -1153,6 +1154,7 @@ requires-dist = [
     { name = "click", specifier = ">=8,<9" },
     { name = "fsrs", specifier = ">=6,<7" },
     { name = "mcp", specifier = ">=2,<3" },
+    { name = "tomli", marker = "python_full_version < '3.11'", specifier = ">=2" },
 ]
 
 [package.metadata.requires-dev]

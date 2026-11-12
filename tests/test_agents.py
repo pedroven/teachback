@@ -2,6 +2,7 @@
 
 import json
 import os
+import re
 import shlex
 import shutil
 import stat
@@ -34,41 +35,78 @@ def home(tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
     # The agents' folders follow HOME only, whatever this machine sets.
     monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)
+    monkeypatch.delenv("CODEX_HOME", raising=False)
     monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
     return tmp_path / "home"
 
 
 @pytest.fixture
 def calls(home, monkeypatch):
-    """Fakes the claude and codex plugin CLIs, which remember what they added, and `opencode mcp add`, which writes
-    opencode.json as OpenCode does. Returns every command run."""
-    calls, added = [], set()  # added: {(agent, "marketplace" or "plugin")}
+    """Fakes the agents' CLIs and returns every command run.
+
+    claude and codex remember their teachback marketplace's ref and the plugin's version, and answer their list
+    commands from them. main holds the latest release, the CLI's version. `opencode mcp add` writes opencode.json as
+    OpenCode does.
+    """
+    codex_home = home.parent / "codex"  # outside HOME, so tests that compare HOME's files don't see config.toml
+    monkeypatch.setenv("CODEX_HOME", str(codex_home))
+    calls = []
+    refs = {}  # {"claude" or "codex": the marketplace's ref, such as "v0.1.1", or None when it follows main}
+    plugins = {}  # {"claude" or "codex": the installed plugin's version, such as "0.1.1"}
+
+    def marketplace_list(agent):
+        found = agent in refs
+        if agent == "codex":  # Codex doesn't list the ref: it's in config.toml
+            return {"marketplaces": [{"name": "teachback"}] if found else []}
+        return [{"name": "teachback", "ref": refs[agent]}] if found else []
+
+    def codex_config():
+        ref = f'ref = "{refs["codex"]}"\n' if refs.get("codex") else ""
+        table = f"[marketplaces.teachback]\n{ref}" if "codex" in refs else ""
+        codex_home.mkdir(exist_ok=True)
+        (codex_home / "config.toml").write_text(table)
+
+    def plugin_list(agent):
+        found = agent in plugins
+        if agent == "codex":
+            return {"installed": [{"pluginId": agents.PLUGIN, "version": plugins[agent]}] if found else []}
+        return [{"id": agents.PLUGIN, "scope": "user", "version": plugins[agent]}] if found else []
+
+    def opencode_mcp_add():
+        file = home / OPENCODE_CONFIG
+        config = json.loads(file.read_text()) if file.exists() else {}
+        config.setdefault("mcp", {}).setdefault("servers", {})["teachback"] = {
+            "type": "local",
+            "command": ["teachback", "mcp"],
+        }
+        file.parent.mkdir(parents=True, exist_ok=True)
+        file.write_text(json.dumps(config, indent=2))
 
     def cli(command):
         calls.append(command)
-        agent, args = command.split(" ", 1)
-        if command == "opencode --version":
-            return "opencode v2.2.6\n"
-        if agent == "opencode":
-            file = home / ".config/opencode/opencode.json"
-            config = json.loads(file.read_text()) if file.exists() else {}
-            server = {"type": "local", "command": ["teachback", "mcp"]}
-            config.setdefault("mcp", {}).setdefault("servers", {})["teachback"] = server
-            file.parent.mkdir(parents=True, exist_ok=True)
-            file.write_text(json.dumps(config, indent=2))
-            return ""
-        if args == "plugin marketplace list --json":
-            names = [{"name": "teachback"}] if (agent, "marketplace") in added else []
-            return json.dumps(names if agent == "claude" else {"marketplaces": names})
-        if args == "plugin list --json":
-            return json.dumps([{"id": agents.PLUGIN, "scope": "user"}] if (agent, "plugin") in added else [])
-        if args == "plugin list -m teachback --json":
-            return json.dumps({"installed": [{"pluginId": agents.PLUGIN}] if (agent, "plugin") in added else []})
-        thing = "marketplace" if "marketplace" in args else "plugin"
-        if args.split()[-2] in ("add", "install"):
-            added.add((agent, thing))
-        else:
-            added.discard((agent, thing))
+        agent, *args = command.split()
+        match args:
+            case ["--version"]:
+                return "opencode v2.2.6\n"
+            case ["mcp", "add", *_]:
+                opencode_mcp_add()
+            case ["plugin", "marketplace", "list", "--json"]:
+                return json.dumps(marketplace_list(agent))
+            case ["plugin", "list", *_]:
+                return json.dumps(plugin_list(agent))
+            case ["plugin", "marketplace", "add", source]:  # pedroven/teachback, or #v0.1.1 (@v0.1.1 in Codex)
+                refs[agent] = (re.split("[#@]", source) + [None])[1]
+            case ["plugin", "marketplace", "remove", _]:
+                del refs[agent]
+                if agent == "claude":  # Claude Code uninstalls the plugin with its marketplace; Codex keeps it
+                    plugins.pop(agent, None)
+            case ["plugin", "add" | "install" | "update", _]:
+                ref = refs[agent]  # the version in plugin.json at that ref
+                plugins[agent] = ref.removeprefix("v") if ref else agents.VERSION
+            case ["plugin", "remove" | "uninstall", _]:
+                del plugins[agent]
+        if agent == "codex":
+            codex_config()
         return ""
 
     monkeypatch.setattr(agents, "cli", cli)
@@ -114,6 +152,72 @@ def test_setup(calls, home):
     assert tree(home) == {OPENCODE_CONFIG: b"{}\n"}
 
 
+def test_update(calls, home, monkeypatch):
+    """After a CLI upgrade, setup updates an older plugin with each agent's own commands."""
+    monkeypatch.setattr(agents, "VERSION", "0.1.1")
+    teachback_cli("setup", "--yes")
+    monkeypatch.setattr(agents, "VERSION", "0.1.2")
+    calls.clear()
+    code, out = teachback_cli("setup", "--yes")
+    assert code == 0 and "trust teachback's SessionStart hook" in out  # Codex asks again for a changed plugin
+    assert changes(calls) == [
+        "claude plugin marketplace update teachback",
+        "claude plugin update teachback@teachback",
+        "codex plugin marketplace upgrade teachback",
+        "codex plugin add teachback@teachback",
+    ]
+    assert teachback_cli("setup", "--yes") == (0, "Already set up.\n")
+
+
+def test_plugin_ahead_of_the_cli(calls, home, monkeypatch):
+    """main moved on and the plugin followed it before the CLI was upgraded: that's fine, nothing to do."""
+    monkeypatch.setattr(agents, "VERSION", "0.1.2")
+    teachback_cli("setup", "--yes")
+    monkeypatch.setattr(agents, "VERSION", "0.1.1")
+    assert teachback_cli("setup", "--yes") == (0, "Already set up.\n")
+
+
+def test_pin(calls, home, monkeypatch):
+    monkeypatch.setattr(agents, "VERSION", "0.1.1")
+    teachback_cli("setup", "--yes")  # follows main
+    calls.clear()
+    teachback_cli("setup", "--yes", "--pin")
+    assert changes(calls)[:3] == [
+        "claude plugin marketplace remove teachback",
+        "claude plugin marketplace add pedroven/teachback#v0.1.1",
+        "claude plugin install teachback@teachback",
+    ]
+    assert "codex plugin marketplace add pedroven/teachback@v0.1.1" in calls
+    assert teachback_cli("setup", "--yes", "--pin") == (0, "Already set up.\n")
+
+    monkeypatch.setattr(agents, "VERSION", "0.1.2")
+    calls.clear()
+    code, out = teachback_cli("setup", "--yes")  # a plain setup leaves a pin alone
+    assert "note: the plugin is pinned to v0.1.1. `teachback setup --pin` moves it to v0.1.2" in out
+    assert changes(calls) == [] and out.endswith("Already set up.\n")
+
+    teachback_cli("setup", "--yes", "--pin")
+    assert "claude plugin marketplace add pedroven/teachback#v0.1.2" in calls
+    assert "codex plugin marketplace add pedroven/teachback@v0.1.2" in calls
+    assert teachback_cli("setup", "--yes", "--pin") == (0, "Already set up.\n")
+
+    teachback_cli("uninstall", "--yes")  # how the README says to follow main again
+    calls.clear()
+    teachback_cli("setup", "--yes")
+    assert "claude plugin marketplace add pedroven/teachback" in calls
+    assert "codex plugin marketplace add pedroven/teachback" in calls
+
+
+def test_plugin_without_a_version(home, monkeypatch):
+    """A CLI that lists no version for the plugin: setup can't tell it's older, so it leaves it as it is."""
+    lists = {
+        "claude plugin marketplace list --json": [{"name": "teachback"}],
+        "claude plugin list --json": [{"id": agents.PLUGIN, "scope": "user"}],
+    }
+    monkeypatch.setattr(agents, "cli", lambda command: json.dumps(lists.get(command)))
+    assert teachback_cli("setup", "--yes", "--agent", "claude-code") == (0, "Already set up.\n")
+
+
 def test_uninstall_after_the_agent(calls, home):
     teachback_cli("setup", "--yes")
     (home.parent / "bin/claude").unlink()  # the user removed Claude Code before teachback
@@ -149,14 +253,18 @@ def test_agent_cli_times_out(home, monkeypatch):
 
 
 def test_project_scope_install_is_not_enough(home, monkeypatch):
-    """Installed for another repo only: setup still installs it for the user."""
+    """Installed for another repo only: setup still installs it for the user, and keeps the marketplace, whose removal
+    would uninstall the other repo's copy. --pin has to remove it, so its plan says so."""
     lists = {
         "claude plugin marketplace list --json": [{"name": "teachback"}],
-        "claude plugin list --json": [{"id": agents.PLUGIN, "scope": "project"}],
+        "claude plugin list --json": [{"id": agents.PLUGIN, "scope": "project", "version": agents.VERSION}],
     }
     monkeypatch.setattr(agents, "cli", lambda command: json.dumps(lists.get(command)))
     _, out = teachback_cli("setup", "--yes", "--agent", "claude-code")
-    assert "done    claude-code: claude plugin install teachback@teachback" in out
+    assert "done    claude-code: claude plugin install teachback@teachback" in out and "remove" not in out
+
+    _, out = teachback_cli("setup", "--yes", "--agent", "claude-code", "--pin")
+    assert "note: removing the marketplace also uninstalls teachback from the projects that installed it" in out
 
 
 def test_older_skill_copy_noted(calls, home):

@@ -4,6 +4,15 @@ Notable changes to teachback. The format follows [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Added
+
+- `teachback setup --pin` pins the Claude Code and Codex plugin to the release tag of the CLI's version, instead of following `main`. A plain `teachback setup` leaves a pinned plugin on its tag, and says how to move it.
+- The README says how to update: `uv tool upgrade teachback`, then `teachback setup`, or the agents' own plugin update commands.
+
+### Fixed
+
+- `teachback setup` updates the Claude Code and Codex plugins when they're older than the CLI, with the agents' own update commands. It used to say "Already set up." and leave the older plugin in place.
+
 ## [0.1.1] - 2026-11-12
 
 ### Changed

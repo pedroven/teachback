@@ -13,6 +13,7 @@ dependencies = [
     "click>=8,<9",
     "fsrs>=6,<7",
     "mcp>=2,<3",
+    "tomli>=2; python_version < '3.11'",  # tomllib's backport, to read Codex's config.toml
 ]
 
 [project.urls]

@@ -73,10 +73,11 @@ def mcp() -> None:
 @main.command()
 @click.option("--agent", type=click.Choice(list(agents.AGENTS)), help="Only this agent.")
 @click.option("--yes", "-y", is_flag=True, help="Don't ask before applying.")
-def setup(agent: str | None, yes: bool) -> None:
+@click.option("--pin", is_flag=True, help="Pin the Claude Code and Codex plugin to this version's release tag.")
+def setup(agent: str | None, yes: bool, pin: bool) -> None:
     """Install teachback into every agent on PATH: the plugin in Claude Code and Codex, the skill, a plugin file and
     the MCP server in OpenCode."""
-    sys.exit(agents.run(remove=False, only=agent, yes=yes))
+    sys.exit(agents.run(remove=False, only=agent, yes=yes, pin=pin))
 
 
 @main.command()

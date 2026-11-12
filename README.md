@@ -14,10 +14,22 @@ teachback setup
 
 `setup` finds Claude Code, Codex and OpenCode on your PATH, shows what it will change in each, and asks before applying. `--agent NAME` limits it to one agent and `--yes` skips the question. `teachback uninstall` takes the same flags and removes everything setup added.
 
-- **Claude Code and Codex** get the teachback plugin through their own `plugin` commands: the pairing mode skill, a SessionStart hook and the MCP server. This repository is the plugin's marketplace.
+- **Claude Code and Codex** get the teachback plugin through their own `plugin` commands: the pairing mode skill, a SessionStart hook and the MCP server. This repository is the plugin's marketplace, and the plugin follows its `main` branch, like most plugins. `teachback setup --pin` pins it to the release tag of the teachback you installed instead.
 - **OpenCode** gets the skill copied to `~/.config/opencode/skills/`, a plugin that does the hook's job copied to `~/.config/opencode/plugins/` (OpenCode 2 or later), and the MCP server registered with `opencode mcp add`.
 
 Your instruction files (AGENTS.md, CLAUDE.md) are never edited.
+
+To update, run `uv tool upgrade teachback`, then `teachback setup`. It updates the Claude Code and Codex plugins when they're older than the CLI, and replaces OpenCode's copies. You can also update the plugin with your agent's own commands:
+
+```
+claude plugin marketplace update teachback
+claude plugin update teachback@teachback
+
+codex plugin marketplace upgrade teachback
+codex plugin add teachback@teachback
+```
+
+A pinned plugin stays on its tag: after an upgrade, run `teachback setup --pin` again to move it to the new one. To follow `main` again, run `teachback uninstall`, then `teachback setup`.
 
 Without Python, you can still get pairing mode alone: copy [`plugin/skills/teachback`](https://github.com/pedroven/teachback/tree/main/plugin/skills/teachback) into your agent's skills folder.
 
@@ -50,5 +62,7 @@ To stop Codex asking before each add or grade, add this to `~/.codex/config.toml
 [plugins."teachback@teachback".mcp_servers.teachback]
 default_tools_approval_mode = "approve"
 ```
+
+The setting survives updates, but `teachback uninstall` removes it along with the plugin.
 
 [Changelog](https://github.com/pedroven/teachback/blob/main/CHANGELOG.md) · [Contributing](https://github.com/pedroven/teachback/blob/main/docs/contributing.md)

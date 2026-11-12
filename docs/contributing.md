@@ -14,6 +14,8 @@ ruff and pytest are pinned in the `dev` group of `pyproject.toml`, so your local
 
 The tests point `TEACHBACK_HOME` at a temporary folder, so they never touch your real `~/.teachback`.
 
+`teachback setup --pin` installs the Claude Code and Codex plugin from the git tag of the running version. Run from a checkout whose version isn't tagged yet, its `marketplace add` fails.
+
 CI (`.github/workflows/ci.yml`) runs the same checks, plus `pip-audit`, on every push to `main` and every pull request, on Python 3.10 and 3.13.
 
 ## Releases
