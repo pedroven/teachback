@@ -1,4 +1,10 @@
+<div align="center">
+
+<img src="https://raw.githubusercontent.com/pedroven/teachback/main/docs/icon.svg" width="96" alt="">
+
 # teachback
+
+</div>
 
 A coding agent can write code you couldn't explain, and you forget what you looked up along the way. teachback makes you learn while you work with coding agents.
 

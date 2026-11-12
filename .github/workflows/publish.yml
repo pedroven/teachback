@@ -32,7 +32,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           {
-            printf '\n### Install\n\n```\nuv tool install teachback==%s\n```\n\n### sha256\n\n```\n' "${GITHUB_REF_NAME#v}"
+            printf '\n### Install\n\n```\nuv tool install teachback==%s\n```\n\nThis pins the version, so `uv tool upgrade teachback` keeps it. To move to newer versions later: `uv tool install teachback@latest`.\n\n### sha256\n\n```\n' "${GITHUB_REF_NAME#v}"
             (cd dist && sha256sum *)
             echo '```'
           } >> "$RUNNER_TEMP/notes.md"
