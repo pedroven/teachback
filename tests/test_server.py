@@ -58,6 +58,9 @@ async def test_tools_plain_text_no_pairing(client):
     assert all(t.output_schema is None for t in tools)  # plain text only
     words = [app.instructions] + [t.description for t in tools]
     assert "pairing" not in " ".join(words).lower()
+    # Codex asks before every MCP call, unless the tool says it is read-only
+    read_only = {t.name for t in tools if t.annotations and t.annotations.read_only_hint}
+    assert read_only == {"teachback_due"}
 
 
 async def test_corrupt_file_named(client, file):

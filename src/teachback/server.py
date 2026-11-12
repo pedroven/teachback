@@ -7,6 +7,7 @@ from datetime import datetime
 
 from mcp.server import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
+from mcp.types import ToolAnnotations
 
 from teachback import __version__, ledger, review_text
 
@@ -32,7 +33,9 @@ def due() -> str:
         raise ToolError(str(e)) from None
 
 
-@app.tool(structured_output=False)  # plain text: no outputSchema for the model to read
+# Plain text: no outputSchema for the model to read. Read-only, so Codex calls it without asking the user;
+# it asks before every tool without the hint.
+@app.tool(structured_output=False, annotations=ToolAnnotations(read_only_hint=True))
 def teachback_due() -> str:
     """The concept due for review and how to review it, or "Nothing due."
 

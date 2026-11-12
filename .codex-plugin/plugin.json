@@ -13,6 +13,9 @@
       "command": "teachback",
       "args": [
         "mcp"
+      ],
+      "env_vars": [
+        "TEACHBACK_HOME"
       ]
     }
   }
