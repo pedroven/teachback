@@ -1,6 +1,6 @@
 # teachback
 
-Learn while you work with coding agents.
+A coding agent can write code you couldn't explain, and you forget what you looked up along the way. teachback makes you learn while you work with coding agents.
 
 - **Pairing mode**: the agent writes no non-trivial code until you explain why it has to be shaped that way, and debugging stays with you.
 - **Reviews**: concepts you haven't fixed yet are kept in one file. Your agent asks about one when it's due, on an FSRS schedule, until it sticks.

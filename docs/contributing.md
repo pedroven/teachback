@@ -19,7 +19,7 @@ CI (`.github/workflows/ci.yml`) runs the same checks, plus `pip-audit`, on every
 ## Releases
 
 1. As you work, add changes under `## [Unreleased]` in `CHANGELOG.md`.
-2. Run `uv version --bump patch` (or `minor`, `major`). This updates `pyproject.toml` and `uv.lock`.
+2. Run `uv version --bump patch` (or `minor`, `major`). This updates `pyproject.toml` and `uv.lock`. Set the same version in `plugin/.claude-plugin/plugin.json` and `plugin/.codex-plugin/plugin.json`: Claude Code and Codex use it to tell when the plugin has changed, and `test_plugin_versions` fails until all three match.
 3. In `CHANGELOG.md`, rename `[Unreleased]` to `[X.Y.Z] - YYYY-MM-DD` and add an empty `[Unreleased]` above it.
 4. Commit "Release X.Y.Z", then `git tag vX.Y.Z && git push origin main vX.Y.Z`.
 
