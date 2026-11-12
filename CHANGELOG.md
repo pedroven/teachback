@@ -4,6 +4,13 @@ Notable changes to teachback. The format follows [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-11-12
+
+### Changed
+
+- The README now opens with the problem teachback solves: an agent can write code you couldn't explain, and you forget what you looked up along the way.
+- The release steps in `docs/contributing.md` say to bump the version in both plugin manifests along with `pyproject.toml`.
+
 ## [0.1.0] - 2026-11-11
 
 ### Added

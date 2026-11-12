@@ -1,6 +1,6 @@
 [project]
 name = "teachback"
-version = "0.1.0"
+version = "0.1.1"
 description = "Learn while you work with coding agents: a pairing mode that makes you explain before the agent codes, and spaced reviews of concepts you haven't fixed yet."
 readme = "README.md"
 authors = [
